@@ -1,0 +1,9 @@
+# The browser bundles are build output: `monarch build` writes them.
+examples/*.client.js
+examples/*.client.js.map
+examples/*.client.raku
+.precomp/
+.DS_Store
+
+# editor/session scratch
+.claude/
