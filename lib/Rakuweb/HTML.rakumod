@@ -1,7 +1,7 @@
-# Monarch::HTML — the element tree, and a builder sub per HTML tag.
+# Rakuweb::HTML — the element tree, and a builder sub per HTML tag.
 #
 # One `Element` class serves both homes. On the server it renders to a string;
-# in the browser Monarch::Client gives it a DOM node and writes the properties
+# in the browser Rakuweb::Client gives it a DOM node and writes the properties
 # that changed. Neither is known here — this file is pure Raku and runs on any
 # engine, and under `rakupp --target=js` as well.
 #
@@ -17,7 +17,7 @@
 # dynamic scope worth leaning on. A builder appends itself to the innermost
 # open parent and returns the element, so `my $b = button 'Go'` both places it
 # and names it — which is how a handler gets hold of it afterwards.
-unit module Monarch::HTML;
+unit module Rakuweb::HTML;
 
 # ---------- escaping ----------
 
@@ -49,11 +49,11 @@ sub raw(Str() $html --> Raw) is export { Raw.new(:$html) }
 # standard's, and a builder for one refuses content rather than dropping it.
 my constant VOID = <area base br col embed hr img input link meta param source track wbr>;
 
-# Which half is running. Monarch::Client sets it; on the server it stays False,
+# Which half is running. Rakuweb::Client sets it; on the server it stays False,
 # and the event Supplies an Element hands out are empty and already finished.
 my $IN-BROWSER = False;
-sub monarch-in-browser(--> Bool) is export { $IN-BROWSER }
-sub monarch-set-browser(Bool $b) is export { $IN-BROWSER = $b }
+sub rakuweb-in-browser(--> Bool) is export { $IN-BROWSER }
+sub rakuweb-set-browser(Bool $b) is export { $IN-BROWSER = $b }
 
 #| A node in the page.
 #|
@@ -70,7 +70,7 @@ class Element is export {
     has Str $.applied-text is rw;      # what the DOM currently shows
     has %.applied-attrs is rw;         # …and for each attribute
     has %.taps;                        # event name => Supplier, made on first use
-    has Bool $.listened is rw = False; # Monarch::Client: listeners attached?
+    has Bool $.listened is rw = False; # Rakuweb::Client: listeners attached?
     has Bool $.drawn is rw = False;    # `render-list` has rebuilt this one before
 
     method void(--> Bool) { $!tag (elem) VOID }
@@ -84,7 +84,7 @@ class Element is export {
     method set-kids(@new --> Element) { @!kids = @new; $!text = Str; self }
 
     #| The events. In the browser each name gets one Supplier, and
-    #| Monarch::Client attaches the DOM listener the first time one is asked for
+    #| Rakuweb::Client attaches the DOM listener the first time one is asked for
     #| — a page with no handlers registers none.
     #|
     #| On the SERVER the answer is an empty Supply that is already done, not a
@@ -94,7 +94,7 @@ class Element is export {
     #| Raku++ returns at once, which is a divergence and not something to lean
     #| on.) An already-finished source ends the react immediately on both.
     method on(Str $name --> Supply) {
-        return Supply.from-list() unless monarch-in-browser();
+        return Supply.from-list() unless rakuweb-in-browser();
         # The DOM listener is attached HERE, when the Supply is first asked for,
         # and not in a pass after the page body has run. `whenever $b.clicks`
         # evaluates this before the enclosing `react` starts waiting, and a
@@ -166,31 +166,31 @@ sub with-parent(Element $el, &body) is export {
     # is only ever true in a browser. The line also has to be written HERE, not
     # called through a hook: the transpiler decides what is async by reading the
     # text, and a call through a `&` variable tells it nothing.
-    $r = await $r if monarch-in-browser();
+    $r = await $r if rakuweb-in-browser();
     SCOPE-OUT($el);
     @STACK.pop;
     $r;
 }
 
-# Monarch::Client follows this stack with a cursor of its own, so that a builder
+# Rakuweb::Client follows this stack with a cursor of its own, so that a builder
 # under hydration knows which existing child it should adopt. On the server both
 # hooks are no-ops.
-# Monarch::Client attaches a DOM listener the first time an element's event is
+# Rakuweb::Client attaches a DOM listener the first time an element's event is
 # asked for. On the server there is nothing to listen to.
 my &LISTEN = -> $, Str $ { };
-sub monarch-listen-hook(&hook) is export { &LISTEN = &hook }
+sub rakuweb-listen-hook(&hook) is export { &LISTEN = &hook }
 
 my &SCOPE-IN  = -> Element $ { };
 my &SCOPE-OUT = -> Element $ { };
-sub monarch-scope-hook(&in, &out) is export { &SCOPE-IN = &in; &SCOPE-OUT = &out }
+sub rakuweb-scope-hook(&in, &out) is export { &SCOPE-IN = &in; &SCOPE-OUT = &out }
 
 #| The element a builder would append to, or Nil at the top of a page.
 sub current-parent() is export { @STACK ?? @STACK[*-1] !! Element }
 
-# Monarch::Client replaces this so a builder also makes (or adopts) a DOM node.
+# Rakuweb::Client replaces this so a builder also makes (or adopts) a DOM node.
 # On the server it stays the identity.
 my &MAKE = -> Element $el { $el };
-sub monarch-element-hook(&hook) is export { &MAKE = &hook }
+sub rakuweb-element-hook(&hook) is export { &MAKE = &hook }
 
 #| Build one element and place it in the open parent. `@inner` holds text, Raw
 #| markup, child Elements and at most one block; `%attrs` are the attributes.

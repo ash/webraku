@@ -1,7 +1,7 @@
-# Monarch::Client — the same builders, in a browser.
+# Rakuweb::Client — the same builders, in a browser.
 #
 # This file only ever runs under `rakupp --target=js`. It installs a hook into
-# Monarch::HTML so that building an element also makes (or adopts) a DOM node,
+# Rakuweb::HTML so that building an element also makes (or adopts) a DOM node,
 # and it provides the reconcile pass that writes changed properties back into
 # the page after every event turn.
 #
@@ -17,12 +17,12 @@
 # compared with what the DOM currently shows, and only the differences are
 # written. The one place a tree is diffed is `render-list`, where a list of
 # children is replaced.
-unit module Monarch::Client;
+unit module Rakuweb::Client;
 
 use JS;
-use Monarch::HTML;
-use Monarch::Route;
-use Monarch::Rpc;
+use Rakuweb::HTML;
+use Rakuweb::Route;
+use Rakuweb::Rpc;
 
 my $DOC       = JS.document;
 my @LIVE;                    # every element that may need reconciling
@@ -61,7 +61,7 @@ sub apply-text(Element $el) {
     }
 }
 
-# The hook Monarch::HTML calls for every element it builds.
+# The hook Rakuweb::HTML calls for every element it builds.
 sub make-node(Element $el) {
     my $parent = current-parent();
     if $HYDRATING && $parent ~~ Element:D && $parent.node {
@@ -103,7 +103,7 @@ sub make-node(Element $el) {
         # The page is not what this code would have built. Say so — a silent
         # repaint here is how a hydration bug stays hidden for months — and
         # carry on by building the node fresh.
-        JS.console.warn("monarch: hydration mismatch — the page has <{$cand<tagName>.Str.lc}> where this code builds <{$el.tag}>; the node was replaced");
+        JS.console.warn("rakuweb: hydration mismatch — the page has <{$cand<tagName>.Str.lc}> where this code builds <{$el.tag}>; the node was replaced");
         $el.node = $DOC.createElement($el.tag);
         apply-attrs($el); apply-text($el);
         $parent.node.replaceChild($el.node, $cand);
@@ -118,7 +118,7 @@ sub make-node(Element $el) {
     $el;
 }
 
-# Monarch::HTML pushes an element onto its own stack for the duration of a
+# Rakuweb::HTML pushes an element onto its own stack for the duration of a
 # builder block; the hydration cursor follows it, one entry per open parent, so
 # that each level adopts its own children rather than the root's.
 sub scope-in(Element $e)  { @HCURSOR.push: ($HYDRATING && $e.node) ?? $e.node<firstElementChild> !! Nil }
@@ -126,7 +126,7 @@ sub scope-out(Element $)  { @HCURSOR.pop }
 
 # ---------- events ----------
 
-#| Attach one DOM listener. Monarch::HTML calls this the first time an element's
+#| Attach one DOM listener. Rakuweb::HTML calls this the first time an element's
 #| event Supply is asked for — which is when `whenever $b.clicks` evaluates it,
 #| before the enclosing `react` starts waiting and never returns.
 sub listen(Element $el, Str $name) is export {
@@ -232,14 +232,14 @@ sub after(Real $seconds --> Supply) is export {
 #| nodes already there instead of creating new ones.
 sub mount(&body, :$selector = 'body', Bool :$hydrate = False) is export {
     my $rootnode = $selector eq 'body' ?? $DOC<body> !! $DOC.querySelector($selector);
-    die "monarch: no element matches '$selector'" unless $rootnode;
+    die "rakuweb: no element matches '$selector'" unless $rootnode;
     my $root = Element.new(tag => $selector eq 'body' ?? 'body' !! 'div');
     $root.node = $rootnode;
     $HYDRATING = $hydrate;
-    monarch-set-browser(True);
-    monarch-element-hook(&make-node);
-    monarch-scope-hook(&scope-in, &scope-out);
-    monarch-listen-hook(&listen);
+    rakuweb-set-browser(True);
+    rakuweb-element-hook(&make-node);
+    rakuweb-scope-hook(&scope-in, &scope-out);
+    rakuweb-listen-hook(&listen);
     # A page body ends in a `react`, and a `react` in a browser never returns —
     # it is the page, for as long as the page is open — and a body that calls an
     # `is server` sub suspends at its first `await`. So there is no moment "after
@@ -263,7 +263,7 @@ sub mount(&body, :$selector = 'body', Bool :$hydrate = False) is export {
 
 my @ROUTES;
 
-sub page(Str $pattern, &body, Str :$title = 'Monarch') is export {
+sub page(Str $pattern, &body, Str :$title = 'Rakuweb') is export {
     @ROUTES.push: Route.new(kind => 'page', :$pattern, segments => split-path($pattern), :&body, :$title);
 }
 sub api(Str $pattern, &body) is export { }
@@ -272,17 +272,17 @@ sub stylesheet(Str $css) is export { }
 
 #| The bundle's last statement. Find the page this URL names, replay the log the
 #| server embedded, and hydrate the tree the server sent.
-sub monarch-hydrate() is export {
-    monarch-load-replay();
+sub rakuweb-hydrate() is export {
+    rakuweb-load-replay();
     my $path = JS.location<pathname>.Str || '/';
     my ($route, %params) = match-route(@ROUTES, $path, kind => 'page');
     without $route {
-        JS.console.warn("monarch: no page matches $path; nothing was hydrated");
+        JS.console.warn("rakuweb: no page matches $path; nothing was hydrated");
         return;
     }
     my @args = $route.param-names.map({ %params{$_} });
     # `mount` does NOT return: a page body ends in a `react` that runs for as
     # long as the page is open. Everything that has to happen after the tree is
     # built and before the react starts waiting happens inside `mount`.
-    mount({ $route.body.(|@args) }, selector => '#monarch-root', hydrate => True);
+    mount({ $route.body.(|@args) }, selector => '#rakuweb-root', hydrate => True);
 }

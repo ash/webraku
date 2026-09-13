@@ -1,4 +1,4 @@
-# The browser bundles are build output: `monarch build` writes them.
+# The browser bundles are build output: `rakuweb build` writes them.
 examples/*.client.js
 examples/*.client.js.map
 examples/*.client.raku

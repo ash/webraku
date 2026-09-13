@@ -1,7 +1,7 @@
 #!/usr/bin/env rakupp
 # Over-the-network — the browser calls the server, and the server keeps the data.
 #
-#     monarch run examples/todo.raku --port=8794
+#     rakuweb run examples/todo.raku --port=8794
 #
 # The list lives in a file on the server. `add-item`, `toggle-item` and
 # `remove-item` are marked `is server`: their bodies exist only on the server,
@@ -15,9 +15,9 @@
 # JavaScript switched off, and the browser does not ask for it again. Every
 # LATER call — after a click — goes over the network, which the request log in
 # the terminal shows.
-use Monarch;
+use Rakuweb;
 
-my $STORE = %*ENV<MONARCH_TODO_FILE> // $*TMPDIR.add('monarch-todo.txt').Str;
+my $STORE = %*ENV<RAKUWEB_TODO_FILE> // $*TMPDIR.add('rakuweb-todo.txt').Str;
 
 stylesheet q:to/CSS/;
     body { font: 16px/1.6 system-ui, sans-serif; margin: 0; background: #fbfaf7; color: #1d1d1b }

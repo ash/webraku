@@ -1,18 +1,18 @@
-# Monarch::Route — the route table, shared by both halves.
+# Rakuweb::Route — the route table, shared by both halves.
 #
 # The server matches a request path against it; the browser matches
 # `location.pathname` against the same table, built by the same `page` calls in
 # the same program, and hydrates the one that answers. One implementation, so
 # the two cannot drift apart — which for a framework whose whole claim is that
 # the two renders agree is not a small thing.
-unit module Monarch::Route;
+unit module Rakuweb::Route;
 
 class Route is export {
     has Str $.kind = 'page';     # 'page' or 'api'
     has Str $.pattern;
     has @.segments;
     has &.body;
-    has Str $.title = 'Monarch';
+    has Str $.title = 'Rakuweb';
 
     #| The names of this route's variable segments, in order.
     method param-names() { @!segments.grep(*.starts-with(':')).map(*.substr(1)) }

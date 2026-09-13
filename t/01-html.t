@@ -1,8 +1,8 @@
 #!/usr/bin/env rakupp
-# Monarch::HTML — the builders and the element model. Pure Raku, so this runs
+# Rakuweb::HTML — the builders and the element model. Pure Raku, so this runs
 # identically under Raku++ and Rakudo; `./test.sh` runs it under both.
 use lib $?FILE.IO.parent.parent.add('lib').Str;
-use Monarch::HTML;
+use Rakuweb::HTML;
 
 my $n = 0;
 my $bad = 0;

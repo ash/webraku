@@ -1,4 +1,4 @@
-# Monarch
+# Rakuweb
 
 One Raku program, on the server and in the browser.
 
@@ -15,11 +15,18 @@ dependencies at all** — the HTTP server is this framework's own, over
 `IO::Socket::INET`, and the browser half is `use JS` and the transpiler's own
 `react`/`supply` runtime.
 
-The working directory name is `rakuact`; the framework is called Monarch, after
-the butterfly that lives in two places.
+**It requires Raku++, and that is the point rather than a limitation.**
+`--target=js` exists in no other Raku, and this framework is that feature made
+into something you can build with. Requiring the engine that has it is the same
+kind of requirement as needing a browser to run JavaScript. The server half is
+ordinary Raku and happens to run under Rakudo too, which the test suite uses as
+a second opinion on the pure parts — but that is a cross-check, not a promise.
+
+The distribution is `Rakuweb` and the command is `rakuweb`; the working
+directory is still called `rakuact`.
 
 ```raku
-use Monarch;
+use Rakuweb;
 
 page '/', :title('Counter'), {
     my $n = 0;
@@ -39,7 +46,7 @@ serve;
 ```
 
 ```
-rakupp bin/monarch run examples/counter.raku
+rakuweb run examples/counter.raku
 ```
 
 ## What replaces what
@@ -53,7 +60,7 @@ rakupp bin/monarch run examples/counter.raku
 | server actions, API routes | `sub load() is server { … }`; `api '/x', { … }` for JSON |
 | `getServerSideProps` | every `is server` call made while rendering is logged into the page and replayed on hydration |
 | file-based routing | `page '/post/:id', -> $id { … }` |
-| Bun: runtime, bundler, server | Raku++, `--target=js`, and `Monarch::Server` |
+| Bun: runtime, bundler, server | Raku++, `--target=js`, and `Rakuweb::Server` |
 | npm packages | `use JS` reaches any browser API; the framework needs nothing else |
 
 ## The three examples
@@ -62,9 +69,9 @@ Each is one file, and each shows one half of the idea.
 
 | example | what it demonstrates | run it |
 |---|---|---|
-| [`counter.raku`](examples/counter.raku) | **client-side only.** After the page loads there is no network traffic at all: clicks and a one-second timer are handled by the `react` block in the browser. | `monarch run examples/counter.raku --port=8791` |
-| [`primes.raku`](examples/primes.raku) | **server-side computation.** The sieve of Eratosthenes is `is server`, so its body is not in the browser bundle — only its answer, which the server wrote into the HTML. `/primes/500` is a route parameter. | `monarch run examples/primes.raku --port=8793` |
-| [`todo.raku`](examples/todo.raku) | **over the network.** The list is a file on the server. Add, toggle, remove and clear are `is server`, so each one is a `POST /_rpc/<name>` the author never wrote. The first render comes from the replay log and costs no request. | `monarch run examples/todo.raku --port=8794` |
+| [`counter.raku`](examples/counter.raku) | **client-side only.** After the page loads there is no network traffic at all: clicks and a one-second timer are handled by the `react` block in the browser. | `rakuweb run examples/counter.raku --port=8791` |
+| [`primes.raku`](examples/primes.raku) | **server-side computation.** The sieve of Eratosthenes is `is server`, so its body is not in the browser bundle — only its answer, which the server wrote into the HTML. `/primes/500` is a route parameter. | `rakuweb run examples/primes.raku --port=8793` |
+| [`todo.raku`](examples/todo.raku) | **over the network.** The list is a file on the server. Add, toggle, remove and clear are `is server`, so each one is a `POST /_rpc/<name>` the author never wrote. The first render comes from the replay log and costs no request. | `rakuweb run examples/todo.raku --port=8794` |
 
 The primes example is the one to read first if the claim sounds too good:
 search `primes.client.js` for the sieve's algorithm and it is not there, then
@@ -112,18 +119,18 @@ strings, booleans, arrays, hashes.
 ## Layout
 
 ```
-lib/Monarch.rakumod          `use Monarch` — re-exports, and the `is server` trait
-lib/Monarch/HTML.rakumod     the element tree and a builder per tag (pure Raku, runs on Rakudo too)
-lib/Monarch/Route.rakumod    the route table, shared by both halves
-lib/Monarch/JSON.rakumod     the JSON the framework needs, and no more
-lib/Monarch/Server.rakumod   HTTP/1.1 over IO::Socket::INET; pages, api, static, RPC
-lib/Monarch/Client.rakumod   the browser half: DOM nodes, hydration, reconcile
-lib/Monarch/Rpc.rakumod      the browser end of `is server`
-lib/Monarch/Bundle.rakumod   assembling the browser program
-bin/monarch                  build / run / bundle
+lib/Rakuweb.rakumod          `use Rakuweb` — re-exports, and the `is server` trait
+lib/Rakuweb/HTML.rakumod     the element tree and a builder per tag (pure Raku, runs on Rakudo too)
+lib/Rakuweb/Route.rakumod    the route table, shared by both halves
+lib/Rakuweb/JSON.rakumod     the JSON the framework needs, and no more
+lib/Rakuweb/Server.rakumod   HTTP/1.1 over IO::Socket::INET; pages, api, static, RPC
+lib/Rakuweb/Client.rakumod   the browser half: DOM nodes, hydration, reconcile
+lib/Rakuweb/Rpc.rakumod      the browser end of `is server`
+lib/Rakuweb/Bundle.rakumod   assembling the browser program
+bin/rakuweb                  build / run / bundle
 ```
 
-`monarch build` concatenates the framework's browser half with the application,
+`rakuweb build` concatenates the framework's browser half with the application,
 replaces every `is server` body with the RPC stub, and runs
 `rakupp --target=js --standalone`. Concatenation is needed only because the
 transpiler takes one file and refuses `use` of a user module; when it learns to

@@ -1,9 +1,9 @@
-# Monarch — one Raku program, on the server and in the browser.
+# Rakuweb — one Raku program, on the server and in the browser.
 #
-# `use Monarch;` is what an application writes, and it is the only line it needs.
+# `use Rakuweb;` is what an application writes, and it is the only line it needs.
 # The shape of an application:
 #
-#     use Monarch;
+#     use Rakuweb;
 #
 #     sub todos() is server { 'todos.txt'.IO.lines }   # the server only
 #
@@ -26,9 +26,9 @@
 # rather than inside the module block: that is where Rakudo looks for it, and
 # both engines then re-export the same names.
 
-use Monarch::HTML;
-use Monarch::JSON;
-use Monarch::Server;
+use Rakuweb::HTML;
+use Rakuweb::JSON;
+use Rakuweb::Server;
 
 #| The trait itself. It has to be declared where a `sub … is server` in the
 #| APPLICATION can see it, which is why it is exported rather than namespaced.
@@ -40,7 +40,7 @@ use Monarch::Server;
 #| render costs no round trip. Wrapping is how the recording happens without the
 #| application writing anything: `todos()` in a page body is an ordinary call.
 multi sub trait_mod:<is>(Routine $r, :$server!) {
-    monarch-register($r);
+    rakuweb-register($r);
     my $name = $r.name;
     # `my \result` and not `my $result`: a Scalar ITEMIZES a returned list, so
     # `my @p = sieve(100)` came back with one element — the whole array — and
@@ -55,9 +55,9 @@ multi sub trait_mod:<is>(Routine $r, :$server!) {
 
 sub EXPORT(|) {
     Map.new(
-        |Monarch::HTML::EXPORT::DEFAULT::.pairs,
-        |Monarch::JSON::EXPORT::DEFAULT::.pairs,
-        |Monarch::Server::EXPORT::DEFAULT::.pairs,
+        |Rakuweb::HTML::EXPORT::DEFAULT::.pairs,
+        |Rakuweb::JSON::EXPORT::DEFAULT::.pairs,
+        |Rakuweb::Server::EXPORT::DEFAULT::.pairs,
         '&trait_mod:<is>' => &trait_mod:<is>,
     );
 }

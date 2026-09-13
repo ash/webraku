@@ -1,4 +1,4 @@
-# Monarch::Server — HTTP/1.1 on nothing but IO::Socket::INET.
+# Rakuweb::Server — HTTP/1.1 on nothing but IO::Socket::INET.
 #
 # No dependencies. One thread per connection, which is the shape `rakus` has
 # been serving with on both engines; a request is parsed into a Request object,
@@ -10,11 +10,11 @@
 #   api    — the block's return value, as JSON.
 #   rpc    — one `is server` sub, called with the arguments the browser sent.
 #   static — a file from a directory.
-unit module Monarch::Server;
+unit module Rakuweb::Server;
 
-use Monarch::HTML;
-use Monarch::JSON;
-use Monarch::Route;
+use Rakuweb::HTML;
+use Rakuweb::JSON;
+use Rakuweb::Route;
 
 # ---------- the request ----------
 
@@ -50,7 +50,7 @@ my $VERSION = ~now.Int;     # the dev watcher's reload token
 
 #| Register a page. The path may carry named segments — `/post/:id` — which are
 #| bound to the block's parameters in order.
-sub page(Str $pattern, &body, Str :$title = 'Monarch') is export {
+sub page(Str $pattern, &body, Str :$title = 'Rakuweb') is export {
     @ROUTES.push: Route.new(kind => 'page', :$pattern, segments => split-path($pattern), :&body, :$title);
 }
 
@@ -66,20 +66,20 @@ sub static(Str $prefix, Str $dir) is export { @STATIC.push: ($prefix, $dir) }
 #| every one the program declares; a program may also do it by hand.
 sub server-sub(Str $name, &code) is export { %RPC{$name} = &code }
 
-# The `is server` routines, in declaration order. The trait lives in Monarch.rakumod
+# The `is server` routines, in declaration order. The trait lives in Rakuweb.rakumod
 # — it has to, so an application's `sub … is server` can see it — but the list
 # belongs here, where `serve` publishes it and `record-call` fills the log.
 # Registering at DECLARATION and not in `serve` is what lets `handle` answer an
 # `/_rpc/` call with no port and no server started — which is how t/02-server.t
 # checks the whole endpoint.
 my @SERVER-SUBS;
-sub monarch-register(Routine $r) is export {
+sub rakuweb-register(Routine $r) is export {
     @SERVER-SUBS.push: $r;
     %RPC{$r.name} = $r;
 }
-sub monarch-server-subs() is export { @SERVER-SUBS }
+sub rakuweb-server-subs() is export { @SERVER-SUBS }
 
-# The sources Monarch::Client hands out in the browser. On the server they are
+# The sources Rakuweb::Client hands out in the browser. On the server they are
 # empty and already finished, for the same reason an element's events are: a
 # `whenever every(1) { … }` in a page body must not keep the render waiting.
 sub every(Real $seconds --> Supply) is export { Supply.from-list() }
@@ -108,7 +108,7 @@ sub document(Str $title, Str $body-html, Str $replay, Str :$css = '' --> Str) is
         (function () \{
           var v = "$VERSION";
           setInterval(function () \{
-            fetch("/_monarch/version").then(function (r) \{ return r.text() \})
+            fetch("/_rakuweb/version").then(function (r) \{ return r.text() \})
               .then(function (t) \{ if (t.trim() !== v) location.reload() \});
           \}, 700);
         \})();
@@ -126,8 +126,8 @@ sub document(Str $title, Str $body-html, Str $replay, Str :$css = '' --> Str) is
     </head>
     <body>
     {$body-html}
-    <script id="monarch-replay" type="application/json">{$replay}</script>
-    <script src="/_monarch/client.js"></script>
+    <script id="rakuweb-replay" type="application/json">{$replay}</script>
+    <script src="/_rakuweb/client.js"></script>
     {$dev-script}
     </body>
     </html>
@@ -157,20 +157,20 @@ sub finish-log(--> Str) { my $j = to-json($LOG // []); $LOG = Nil; $j }
 
 sub render-page(Route $r, %params, Request $req --> Str) {
     start-log();
-    my $root = Element.new(tag => 'div', attrs => { id => 'monarch-root' });
+    my $root = Element.new(tag => 'div', attrs => { id => 'rakuweb-root' });
     {
-        my $*MONARCH-REQUEST = $req;
+        my $*RAKUWEB-REQUEST = $req;
         $REQUEST = $req;
         my @args = $r.param-names.map({ %params{$_} });
         with-parent($root, { $r.body.(|@args) });
     }
     my $replay = finish-log();
-    document($r.title, $root.html, $replay, css => monarch-css());
+    document($r.title, $root.html, $replay, css => rakuweb-css());
 }
 
 my $CSS = '';
 sub stylesheet(Str $css) is export { $CSS = $css }
-sub monarch-css(--> Str) { $CSS }
+sub rakuweb-css(--> Str) { $CSS }
 
 # ---------- HTTP ----------
 
@@ -205,8 +205,8 @@ sub handle(Str $method, Str $target, %headers, Str $body --> List) is export {
     my %query = parse-query($qs // '');
     my $req = Request.new(:$method, :$path, :%query, :%headers, :$body);
 
-    return (200, 'text/plain; charset=utf-8', $VERSION) if $path eq '/_monarch/version';
-    return (200, %MIME<js>, $CLIENT-JS)                 if $path eq '/_monarch/client.js';
+    return (200, 'text/plain; charset=utf-8', $VERSION) if $path eq '/_rakuweb/version';
+    return (200, %MIME<js>, $CLIENT-JS)                 if $path eq '/_rakuweb/client.js';
 
     # an `is server` call from the browser
     if $path.starts-with('/_rpc/') {
@@ -302,27 +302,27 @@ sub serve-one($conn, Bool :$log = True) is export {
 }
 
 #| Start the server. `$client-js` is the transpiled bundle, served at
-#| /_monarch/client.js and referenced by every page.
+#| /_rakuweb/client.js and referenced by every page.
 sub serve(Int :$port is copy = 8080, Str :$host = '127.0.0.1', Str :$client-js is copy = '',
           Bool :$dev is copy = False, Bool :$log = True) is export {
-    # `monarch run` builds the bundle and names it here, so that the program
+    # `rakuweb run` builds the bundle and names it here, so that the program
     # itself carries no build concern: an application's last line is `serve;`
     # whether it was started by the tool or by hand.
-    with %*ENV<MONARCH_CLIENT_JS_FILE> -> $f {
+    with %*ENV<RAKUWEB_CLIENT_JS_FILE> -> $f {
         $client-js = $f.IO.slurp if !$client-js && $f.IO.e;
     }
-    $port = +$_ with %*ENV<MONARCH_PORT>;
-    $dev  = True if %*ENV<MONARCH_DEV>;
+    $port = +$_ with %*ENV<RAKUWEB_PORT>;
+    $dev  = True if %*ENV<RAKUWEB_DEV>;
     $CLIENT-JS = $client-js;
     $DEV = $dev;
     my $listener = IO::Socket::INET.new(:localhost($host), :localport($port), :listen);
-    note "monarch: http://$host:$port/" ~ ($dev ?? '  (dev: the page reloads when the program changes)' !! '');
-    note "monarch: {@ROUTES.elems} routes, {%RPC.elems} server subs, client bundle {$client-js.chars} chars";
+    note "rakuweb: http://$host:$port/" ~ ($dev ?? '  (dev: the page reloads when the program changes)' !! '');
+    note "rakuweb: {@ROUTES.elems} routes, {%RPC.elems} server subs, client bundle {$client-js.chars} chars";
     loop {
         my $conn = $listener.accept;
         start {
             my $r = try serve-one($conn, :$log);
-            note "monarch: $!" if $!;
+            note "rakuweb: $!" if $!;
         }
     }
 }

@@ -1,10 +1,10 @@
 # Plan: one Raku program for the server and the browser
 
 **Status: BUILT 2026-09-13.** P0 through P4 landed in one sitting: the engine
-fixes, `Monarch::HTML`, `Monarch::Client`, `Monarch::Server`, the bundler with
+fixes, `Rakuweb::HTML`, `Rakuweb::Client`, `Rakuweb::Server`, the bundler with
 hydration and RPC, and three examples driven end to end in a real browser. What
-was left out is in *What this plan does not do* at the end, unchanged. The name
-is Monarch; the directory keeps its working name. See
+was left out is in *What this plan does not do* at the end, unchanged. The name is
+Rakuweb; the directory keeps its working name. See
 [README.md](README.md) for the user's side and *Where it stands* below for what
 each phase actually cost.
 
@@ -25,6 +25,12 @@ Rakudo v2026.08, Node v24.20.0 and Bun 1.4.0 on the benchmark machine (Darwin
   the author writing a request. No JavaScript is written, no JSX, no npm, no
   bundler other than rakupp. That is the whole of what Next.js on Bun does
   for a React application, with Raku in every seat.
+- **Raku++ only, on purpose.** `--target=js` exists in no other Raku, so the
+  framework cannot be engine-neutral and should not pretend to be. It is free
+  to lean on whatever the engine offers — the transpiler, `--exe` for a single
+  deployable binary, and slangs if a markup layer is ever wanted. The server
+  half is ordinary Raku and runs under Rakudo as a cross-check on the pure
+  parts, which is a test oracle rather than a supported configuration.
 - **Dependencies: none.** Not Cro, not Air, not Humming-Bird, nothing from
   npm. The HTTP server is the framework's own, over `IO::Socket::INET`, the
   sockets `rakus` already serves with on both engines. The browser side is
@@ -47,9 +53,9 @@ Rakudo v2026.08, Node v24.20.0 and Bun 1.4.0 on the benchmark machine (Darwin
 - **Five phases, each gated, all landed.** Engine fixes → HTML builders → the
   browser side → the server → the bundler with hydration and RPC, then three
   examples. What is deliberately left out is listed at the end.
-- **Name: Monarch**, the butterfly that lives in two places. The directory
-  keeps its working name `rakuact`. Shortlist in [Name](#name); every
-  candidate was free in the ecosystem index.
+- **Name: Rakuweb**, which needs no explaining and sits beside `rakupp`,
+  `rakus` and `rakugrid`. The directory keeps its working name `rakuact`.
+  Four rounds of candidates are kept in [Name](#name).
 
 ## What it replaces, piece by piece
 
@@ -113,7 +119,7 @@ Rules that follow:
 The counter, as it would read:
 
 ```raku
-use Monarch;
+use Rakuweb;
 
 page '/', {
     my $n = 0;
@@ -228,24 +234,24 @@ unchanged against a clean build of `HEAD` in a separate worktree (161 agreeing
 was — its own header says so — which is why the set, and not the exit code, is
 the measure.
 
-**P1 — `Monarch::HTML`.** The `Element` class and a builder per tag, in pure
+**P1 — `Rakuweb::HTML`.** The `Element` class and a builder per tag, in pure
 Raku. A page of every construct — nesting, loops, boolean attributes, void
 elements, `raw`, the three renamed tags, a custom tag — renders byte for byte
 identically under Rakudo and Raku++.
 
-**P2 — `Monarch::Client`.** DOM nodes, hydration by adoption, events as
+**P2 — `Rakuweb::Client`.** DOM nodes, hydration by adoption, events as
 Supplies, the per-turn reconcile, `render-list`. Checked in a real browser and
 not only under a stub, which is where the two hydration bugs surfaced that a
 stub could not have shown: the implicit `<tbody>` a parser inserts, and
 `.children` being an HTMLCollection in a browser but a copied Array from
 anything array-like.
 
-**P3 — `Monarch::Server`.** HTTP/1.1 over `IO::Socket::INET`, one thread per
+**P3 — `Rakuweb::Server`.** HTTP/1.1 over `IO::Socket::INET`, one thread per
 connection; `page`, `api`, `static`, `serve`, `$*REQUEST`, the document shell,
 the replay log, the dev reload. `handle` is a pure function of the request and
 the route table, so what the server answers is testable with no port.
 
-**P4 — the bundler, hydration, RPC.** `monarch build` assembles, stubs every
+**P4 — the bundler, hydration, RPC.** `rakuweb build` assembles, stubs every
 `is server` body, and transpiles. Verified end to end in a browser: the todo
 list adds, toggles, removes and clears, each one exactly one `POST /_rpc/…`,
 the server's file holding the result, and a reload serving it back and adopting
@@ -295,23 +301,41 @@ live one.
 
 ## Name
 
-**Decided: Monarch.** The directory keeps its working name `rakuact`, which
-says "React, in Raku" — honest about the lineage, and also about the ceiling
-such a name sets. The reasoning and the alternatives are kept below.
-Candidates, all free in the ecosystem index (2026-09-06 copy, checked
-2026-09-13):
+**Decided: Rakuweb.** It needs no explaining, ever, and it sits in the family
+the rest of this work already uses — `rakupp` the engine, `rakus` the static
+server, `rakugrid`, `rakumap`, `rakujs`. The directory keeps its working name
+`rakuact`, which said "React, in Raku": honest about the lineage, and about the
+ceiling such a name sets.
 
-| name | why | against |
-|---|---|---|
-| **Monarch** | the butterfly that migrates between two homes — the same code lives on the server and in the browser; Camelia's family, like Wings; plain English; `use Monarch`, `monarch build` | royal connotation; the word is used by unrelated products elsewhere |
-| Hane (羽) | "wing" in Japanese: Raku's own language, and Wings' sibling; four letters | opaque to most readers; a go term |
-| Kumo (蜘蛛, 雲) | spider and cloud in one word — the web and the server | several unrelated tech products |
-| Nectar | what the butterfly feeds on; pleasant | says nothing about the web |
-| Rakuact | the user's own; says what it is | "a React" |
+Four rounds of candidates came before it, and the reasoning is worth keeping
+because it is the reasoning that arrived here. Every name below was free in the
+ecosystem index (2026-09-06 copy, checked 2026-09-13).
 
-**Monarch it is.** Distribution `Monarch`, modules `Monarch::HTML`,
-`Monarch::Route`, `Monarch::JSON`, `Monarch::Server`, `Monarch::Client`,
-`Monarch::Rpc`, `Monarch::Bundle`; the command is `monarch`.
+**Round one, a name of its own.** Monarch — the butterfly that migrates between
+two homes, in Camelia's family like Wings. Rejected: it is an ordinary English
+word whose dominant meaning is a ruler, so the butterfly reading needs a
+footnote every time, and it is used by unrelated products elsewhere.
+
+**Round two, wider.** Amphi (the Greek "both sides"), Duplex (both directions at
+once), Isomer, Tandem, Duet; Eclosion and Instar and Pinion from the butterfly's
+own vocabulary; Heddle and Skein and Weft from weaving, which is where the word
+"web" comes from; Tsunagi and Mado from Japanese. Loom, Quill, Shuttle, Twain,
+Ditto and Hashi were ruled out on collisions outside Raku.
+
+**Round three, built on `raku` itself, leaning Japanese.** 楽 is "ease", so
+Rakuraku (楽々, "effortlessly"), Rakuen (楽園, "paradise" — but one letter from
+Rakuten), Rakusho, Rakuyaki.
+
+**Round four, built on `raku` without the Japanese.** Rakuweb, Rakuapp, Rakuone,
+Rakuduo, Rakutwin, Rakubridge, Rakulink, Rakuflux, Rakuforge, Rakuwright. One
+practical filter thinned this list: `rakupp` and `rakus` already exist as
+commands, so anything beginning `rakup-` or `rakus-` makes tab-completion
+ambiguous, which ruled out Rakusite, Rakustack, Rakuserve, Rakuspan and
+Rakupage.
+
+Distribution `Rakuweb`; modules `Rakuweb::HTML`, `Rakuweb::Route`,
+`Rakuweb::JSON`, `Rakuweb::Server`, `Rakuweb::Client`, `Rakuweb::Rpc`,
+`Rakuweb::Bundle`; the command is `rakuweb`.
 
 ## What this plan does not do
 

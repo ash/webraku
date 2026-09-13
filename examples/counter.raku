@@ -1,13 +1,13 @@
 #!/usr/bin/env rakupp
 # The counter — the same nine lines as the GUI::Wings example, in a browser.
 #
-#     monarch run examples/counter.raku
+#     rakuweb run examples/counter.raku
 #
 # Everything here happens in the browser. There is no server computation and no
 # network traffic after the page loads: the server renders the HTML once, the
 # browser adopts it, and from then on the clicks are handled by the `react`
 # block below — which is the same block, from the same file.
-use Monarch;
+use Rakuweb;
 
 stylesheet q:to/CSS/;
     body { font: 16px/1.5 system-ui, sans-serif; margin: 0; background: #faf8f5; color: #222 }

@@ -1,7 +1,7 @@
-# Monarch::Rpc — the browser end of `is server`.
+# Rakuweb::Rpc — the browser end of `is server`.
 #
 # A sub marked `is server` has no body in the browser bundle: the bundler
-# replaced it with `await monarch-call('name', [args])`, which is this file.
+# replaced it with `await rakuweb-call('name', [args])`, which is this file.
 #
 # Two ways a call is answered:
 #
@@ -14,24 +14,24 @@
 #   with the arguments as a JSON array, and the answer is the sub's return
 #   value. The log is consumed by the first render, so every later call goes
 #   to the network.
-unit module Monarch::Rpc;
+unit module Rakuweb::Rpc;
 
 use JS;
-use Monarch::JSON;
+use Rakuweb::JSON;
 
 my @REPLAY;
 my %USED;
 
 #| Read the log the server embedded. Called once, before the first render.
-sub monarch-load-replay() is export {
-    my $tag = JS.document.getElementById('monarch-replay');
+sub rakuweb-load-replay() is export {
+    my $tag = JS.document.getElementById('rakuweb-replay');
     return unless $tag;
     @REPLAY = from-json($tag<textContent> || '[]').list.Array;
 }
 
 #| Call a server sub. During hydration the answer comes from the log; after it,
 #| over the network.
-sub monarch-call(Str $name, @args) is export {
+sub rakuweb-call(Str $name, @args) is export {
     # The log first, and each entry only once. The server made exactly the calls
     # the first client render makes, so the entries are consumed by it and every
     # later call finds nothing and goes to the network. There is no separate
@@ -53,6 +53,6 @@ sub monarch-call(Str $name, @args) is export {
     });
     my $text = await $res.text;
     my %answer = from-json($text);
-    die "monarch: $name — %answer<error>" if %answer<error>:exists;
+    die "rakuweb: $name — %answer<error>" if %answer<error>:exists;
     %answer<result>;
 }

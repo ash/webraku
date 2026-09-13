@@ -2,7 +2,7 @@
 # Server-side computation — the work happens on the server, and its result is
 # in the HTML the browser receives.
 #
-#     monarch run examples/primes.raku --port=8793
+#     rakuweb run examples/primes.raku --port=8793
 #
 # Two things to notice, and they are the point of the example:
 #
@@ -14,7 +14,7 @@
 #   `/primes/:limit` is one route. Change the number in the address bar and the
 #   server computes a different sieve. The page is server-rendered either way,
 #   so it works with JavaScript switched off — and it is the same program.
-use Monarch;
+use Rakuweb;
 
 stylesheet q:to/CSS/;
     body { font: 16px/1.6 system-ui, sans-serif; margin: 0; background: #fbfaf7; color: #1d1d1b }
