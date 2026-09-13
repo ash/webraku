@@ -16,7 +16,7 @@
 #   to the network.
 unit module Rakuweb::Rpc;
 
-use JS;
+use js;
 use Rakuweb::JSON;
 
 my @REPLAY;

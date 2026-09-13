@@ -19,7 +19,7 @@
 # children is replaced.
 unit module Rakuweb::Client;
 
-use JS;
+use js;
 use Rakuweb::HTML;
 use Rakuweb::Route;
 use Rakuweb::Rpc;
