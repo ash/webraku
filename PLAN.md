@@ -362,7 +362,8 @@ rakupp probes/tags.raku     # the 113-tag table on both engines
 After the P0 fixes the tag table reads: Rakudo fails on `i`, `map` and `sub`;
 Raku++ on `sub` alone.
 
-`probes/02-client.raku` needs `node` and preloads `probes/dom-stub.js`;
+`probes/02-client.raku` needs a JavaScript host — `bun` by default, `node` with
+`RAKUPP_JS=node` — and preloads `probes/dom-stub.js`;
 the standalone size quoted above is the `-o` output of that file. Rakudo
 is read from `$RAKUDO`, default `/opt/homebrew/bin/raku`; the Raku++ is
 the one running the script.

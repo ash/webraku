@@ -15,6 +15,11 @@ dependencies at all** — the HTTP server is this framework's own, over
 `IO::Socket::INET`, and the browser half is `use JS` and the transpiler's own
 `react`/`supply` runtime.
 
+The browser half is built by `rakupp --target=js`, and **bun** is the runtime
+the examples and the probes use — it runs an ES module `.js` without consulting
+a `package.json`, which is the one thing that makes node's answer depend on
+where the file sits. Node works too; `RAKUPP_JS=node` selects it.
+
 **It requires Raku++, and that is the point rather than a limitation.**
 `--target=js` exists in no other Raku, and this framework is that feature made
 into something you can build with. Requiring the engine that has it is the same

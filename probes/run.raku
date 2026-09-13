@@ -7,12 +7,16 @@
 #                                         # rakupp = the engine running this script
 #   RAKUDO=/path/to/raku rakupp probes/run.raku
 #
-# node is needed for the --target=js rows; bun does as well (RAKUPP_JS=bun).
+# bun runs the --target=js rows (RAKUPP_JS=node picks node instead). bun is the
+# default because it runs an ES module `.js` without consulting a package.json,
+# which is what makes node's answer depend on where the file happens to sit.
 
 my $here   = $?FILE.IO.parent;
 my $rakupp = $*EXECUTABLE.Str;
 my $rakudo = %*ENV<RAKUDO> // '/opt/homebrew/bin/raku';
-my $node   = %*ENV<RAKUPP_JS> // 'node';
+my $host   = %*ENV<RAKUPP_JS> // 'bun';
+# `-r` is node's spelling for "load this first"; bun calls it `--preload`.
+my $preload = $host.contains('node') ?? '-r' !! '--preload';
 my $stub   = $here.add('dom-stub.js').absolute;
 my $tmp    = $*TMPDIR.add('rakuact-probes');
 $tmp.mkdir;
@@ -44,7 +48,7 @@ for @probes -> (:key($name), :value(($file, $marker, @engines))) {
     if 'js' ∈ @engines {
         my $js = $tmp.add($file.subst(/ '.raku' $ /, '.js')).Str;
         my $t = out($rakupp, '--target=js', '--standalone', $src, '-o', $js);
-        %got<js> = $js.IO.e ?? out($node, $js) !! "TRANSPILE REFUSED: $t";
+        %got<js> = $js.IO.e ?? out($host, $js) !! "TRANSPILE REFUSED: $t";
     }
     say "== $name";
     for <rakudo rakupp js> -> $e {
@@ -62,14 +66,14 @@ for @probes -> (:key($name), :value(($file, $marker, @engines))) {
     }
 }
 
-# 02 needs a DOM: node with the stand-in preloaded. The marker proves the click
+# 02 needs a DOM: the host with the stand-in preloaded. The marker proves the click
 # path ran (clicked 2 times), not just that the script loaded.
 say "== 02 client: DOM builders, click → Supply → react/whenever → reconcile";
 my $src = $here.add('02-client.raku').Str;
 my $js  = $tmp.add('02-client.js').Str;
 my $t = out($rakupp, '--target=js', '--standalone', $src, '-o', $js);
 if $js.IO.e {
-    my $o = out($node, '-r', $stub, $js);
+    my $o = out($host, $preload, $stub, $js);
     my $ok = $o.contains('after clicks: clicked 2 times') && $o.contains('P3B-DOM <div id="app">');
     printf "   %-6s %s  %s\n", 'js', $ok ?? 'ok  ' !! 'FAIL', $o.lines.head // '';
 }
