@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run every test under both engines. RAKUPP and RAKUDO override the binaries.
 RAKUPP="${RAKUPP:-rakupp}"
-RAKUDO="${RAKUDO:-/opt/homebrew/bin/raku}"
+RAKUDO="${RAKUDO:-/opt/homebrew/bin/rakudo}"
 fail=0
 for engine in "$RAKUPP" "$RAKUDO"; do
     command -v "$engine" >/dev/null 2>&1 || { echo "== $engine not found, skipped"; continue; }

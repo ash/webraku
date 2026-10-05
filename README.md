@@ -1,4 +1,4 @@
-# Rakuweb
+# Webraku
 
 One Raku program, on the server and in the browser.
 
@@ -27,11 +27,10 @@ kind of requirement as needing a browser to run JavaScript. The server half is
 ordinary Raku and happens to run under Rakudo too, which the test suite uses as
 a second opinion on the pure parts — but that is a cross-check, not a promise.
 
-The distribution is `Rakuweb` and the command is `rakuweb`; the working
-directory is still called `rakuact`.
+The distribution is `Webraku` and the command is `webraku`.
 
 ```raku
-use Rakuweb;
+use Webraku;
 
 page '/', :title('Counter'), {
     my $n = 0;
@@ -51,7 +50,7 @@ serve;
 ```
 
 ```
-rakuweb run examples/counter.raku
+webraku run examples/counter.raku
 ```
 
 ## What replaces what
@@ -65,7 +64,7 @@ rakuweb run examples/counter.raku
 | server actions, API routes | `sub load() is server { … }`; `api '/x', { … }` for JSON |
 | `getServerSideProps` | every `is server` call made while rendering is logged into the page and replayed on hydration |
 | file-based routing | `page '/post/:id', -> $id { … }` |
-| Bun: runtime, bundler, server | Raku++, `--target=js`, and `Rakuweb::Server` |
+| Bun: runtime, bundler, server | Raku++, `--target=js`, and `Webraku::Server` |
 | npm packages | `use JS` reaches any browser API; the framework needs nothing else |
 
 ## The three examples
@@ -74,9 +73,9 @@ Each is one file, and each shows one half of the idea.
 
 | example | what it demonstrates | run it |
 |---|---|---|
-| [`counter.raku`](examples/counter.raku) | **client-side only.** After the page loads there is no network traffic at all: clicks and a one-second timer are handled by the `react` block in the browser. | `rakuweb run examples/counter.raku --port=8791` |
-| [`primes.raku`](examples/primes.raku) | **server-side computation.** The sieve of Eratosthenes is `is server`, so its body is not in the browser bundle — only its answer, which the server wrote into the HTML. `/primes/500` is a route parameter. | `rakuweb run examples/primes.raku --port=8793` |
-| [`todo.raku`](examples/todo.raku) | **over the network.** The list is a file on the server. Add, toggle, remove and clear are `is server`, so each one is a `POST /_rpc/<name>` the author never wrote. The first render comes from the replay log and costs no request. | `rakuweb run examples/todo.raku --port=8794` |
+| [`counter.raku`](examples/counter.raku) | **client-side only.** After the page loads there is no network traffic at all: clicks and a one-second timer are handled by the `react` block in the browser. | `webraku run examples/counter.raku --port=8791` |
+| [`primes.raku`](examples/primes.raku) | **server-side computation.** The sieve of Eratosthenes is `is server`, so its body is not in the browser bundle — only its answer, which the server wrote into the HTML. `/primes/500` is a route parameter. | `webraku run examples/primes.raku --port=8793` |
+| [`todo.raku`](examples/todo.raku) | **over the network.** The list is a file on the server. Add, toggle, remove and clear are `is server`, so each one is a `POST /_rpc/<name>` the author never wrote. The first render comes from the replay log and costs no request. | `webraku run examples/todo.raku --port=8794` |
 
 The primes example is the one to read first if the claim sounds too good:
 search `primes.client.js` for the sieve's algorithm and it is not there, then
@@ -124,18 +123,18 @@ strings, booleans, arrays, hashes.
 ## Layout
 
 ```
-lib/Rakuweb.rakumod          `use Rakuweb` — re-exports, and the `is server` trait
-lib/Rakuweb/HTML.rakumod     the element tree and a builder per tag (pure Raku, runs on Rakudo too)
-lib/Rakuweb/Route.rakumod    the route table, shared by both halves
-lib/Rakuweb/JSON.rakumod     the JSON the framework needs, and no more
-lib/Rakuweb/Server.rakumod   HTTP/1.1 over IO::Socket::INET; pages, api, static, RPC
-lib/Rakuweb/Client.rakumod   the browser half: DOM nodes, hydration, reconcile
-lib/Rakuweb/Rpc.rakumod      the browser end of `is server`
-lib/Rakuweb/Bundle.rakumod   assembling the browser program
-bin/rakuweb                  build / run / bundle
+lib/Webraku.rakumod          `use Webraku` — re-exports, and the `is server` trait
+lib/Webraku/HTML.rakumod     the element tree and a builder per tag (pure Raku, runs on Rakudo too)
+lib/Webraku/Route.rakumod    the route table, shared by both halves
+lib/Webraku/JSON.rakumod     the JSON the framework needs, and no more
+lib/Webraku/Server.rakumod   HTTP/1.1 over IO::Socket::INET; pages, api, static, RPC
+lib/Webraku/Client.rakumod   the browser half: DOM nodes, hydration, reconcile
+lib/Webraku/Rpc.rakumod      the browser end of `is server`
+lib/Webraku/Bundle.rakumod   assembling the browser program
+bin/webraku                  build / run / bundle
 ```
 
-`rakuweb build` concatenates the framework's browser half with the application,
+`webraku build` concatenates the framework's browser half with the application,
 replaces every `is server` body with the RPC stub, and runs
 `rakupp --target=js --standalone`. Concatenation is needed only because the
 transpiler takes one file and refuses `use` of a user module; when it learns to

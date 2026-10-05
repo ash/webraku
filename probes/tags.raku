@@ -9,7 +9,7 @@
 
 my $rakupp = $*EXECUTABLE.Str;
 my $rakudo = %*ENV<RAKUDO> // '/opt/homebrew/bin/raku';
-my $tmp    = $*TMPDIR.add('rakuact-tags');
+my $tmp    = $*TMPDIR.add('webraku-tags');
 $tmp.mkdir;
 
 my @tags = <a abbr address area article aside audio b base bdi bdo blockquote

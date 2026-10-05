@@ -1,9 +1,9 @@
 #!/usr/bin/env rakupp
-# Rakuweb::Server and Rakuweb::JSON. `handle` is a pure function of the request
+# Webraku::Server and Webraku::JSON. `handle` is a pure function of the request
 # and the route table, so everything the server ANSWERS is checked here with no
 # port and no network.
 use lib $?FILE.IO.parent.parent.add('lib').Str;
-use Rakuweb;
+use Webraku;
 
 my $n = 0;
 my $bad = 0;
@@ -48,8 +48,8 @@ sub double(Int $x) is server { $x * 2 }
     has-it $type, 'text/html',                      'and it is HTML';
     has-it $body, '<title>Home</title>',            'the title comes from the route';
     has-it $body, '<h1>home</h1>',                  'the page body is rendered into it';
-    has-it $body, '<div id="rakuweb-root">',        'the tree is wrapped for the browser to find';
-    has-it $body, 'id="rakuweb-replay"',            'and the replay log is embedded';
+    has-it $body, '<div id="webraku-root">',        'the tree is wrapped for the browser to find';
+    has-it $body, 'id="webraku-replay"',            'and the replay log is embedded';
 }
 {
     my ($status, $type, $body) = handle('GET', '/post/42', {}, '');
@@ -77,7 +77,7 @@ sub double(Int $x) is server { $x * 2 }
     page '/twice', :title('Twice'), { p ~double(21) }
     my ($status, $type, $body) = handle('GET', '/twice', {}, '');
     has-it $body, '<p>42</p>', 'an `is server` sub runs on the server';
-    my $log = ($body ~~ / 'id="rakuweb-replay" type="application/json">' (<-[<]>*) /)[0].Str;
+    my $log = ($body ~~ / 'id="webraku-replay" type="application/json">' (<-[<]>*) /)[0].Str;
     my @entries = from-json($log).list;
     is-it @entries.elems.Str, '1',             'the call was recorded once';
     is-it @entries[0]<name>,  'double',        'under its own name';

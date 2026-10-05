@@ -18,7 +18,7 @@ my $host   = %*ENV<RAKUPP_JS> // 'bun';
 # `-r` is node's spelling for "load this first"; bun calls it `--preload`.
 my $preload = $host.contains('node') ?? '-r' !! '--preload';
 my $stub   = $here.add('dom-stub.js').absolute;
-my $tmp    = $*TMPDIR.add('rakuact-probes');
+my $tmp    = $*TMPDIR.add('webraku-probes');
 $tmp.mkdir;
 
 sub out(*@cmd) {

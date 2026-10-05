@@ -1,4 +1,4 @@
-# Rakuweb::Server — HTTP/1.1 on nothing but IO::Socket::INET.
+# Webraku::Server — HTTP/1.1 on nothing but IO::Socket::INET.
 #
 # No dependencies. One thread per connection, which is the shape `rakus` has
 # been serving with on both engines; a request is parsed into a Request object,
@@ -10,11 +10,11 @@
 #   api    — the block's return value, as JSON.
 #   rpc    — one `is server` sub, called with the arguments the browser sent.
 #   static — a file from a directory.
-unit module Rakuweb::Server;
+unit module Webraku::Server;
 
-use Rakuweb::HTML;
-use Rakuweb::JSON;
-use Rakuweb::Route;
+use Webraku::HTML;
+use Webraku::JSON;
+use Webraku::Route;
 
 # ---------- the request ----------
 
@@ -50,7 +50,7 @@ my $VERSION = ~now.Int;     # the dev watcher's reload token
 
 #| Register a page. The path may carry named segments — `/post/:id` — which are
 #| bound to the block's parameters in order.
-sub page(Str $pattern, &body, Str :$title = 'Rakuweb') is export {
+sub page(Str $pattern, &body, Str :$title = 'Webraku') is export {
     @ROUTES.push: Route.new(kind => 'page', :$pattern, segments => split-path($pattern), :&body, :$title);
 }
 
@@ -66,20 +66,20 @@ sub static(Str $prefix, Str $dir) is export { @STATIC.push: ($prefix, $dir) }
 #| every one the program declares; a program may also do it by hand.
 sub server-sub(Str $name, &code) is export { %RPC{$name} = &code }
 
-# The `is server` routines, in declaration order. The trait lives in Rakuweb.rakumod
+# The `is server` routines, in declaration order. The trait lives in Webraku.rakumod
 # — it has to, so an application's `sub … is server` can see it — but the list
 # belongs here, where `serve` publishes it and `record-call` fills the log.
 # Registering at DECLARATION and not in `serve` is what lets `handle` answer an
 # `/_rpc/` call with no port and no server started — which is how t/02-server.t
 # checks the whole endpoint.
 my @SERVER-SUBS;
-sub rakuweb-register(Routine $r) is export {
+sub webraku-register(Routine $r) is export {
     @SERVER-SUBS.push: $r;
     %RPC{$r.name} = $r;
 }
-sub rakuweb-server-subs() is export { @SERVER-SUBS }
+sub webraku-server-subs() is export { @SERVER-SUBS }
 
-# The sources Rakuweb::Client hands out in the browser. On the server they are
+# The sources Webraku::Client hands out in the browser. On the server they are
 # empty and already finished, for the same reason an element's events are: a
 # `whenever every(1) { … }` in a page body must not keep the render waiting.
 sub every(Real $seconds --> Supply) is export { Supply.from-list() }
@@ -108,7 +108,7 @@ sub document(Str $title, Str $body-html, Str $replay, Str :$css = '' --> Str) is
         (function () \{
           var v = "$VERSION";
           setInterval(function () \{
-            fetch("/_rakuweb/version").then(function (r) \{ return r.text() \})
+            fetch("/_webraku/version").then(function (r) \{ return r.text() \})
               .then(function (t) \{ if (t.trim() !== v) location.reload() \});
           \}, 700);
         \})();
@@ -126,8 +126,8 @@ sub document(Str $title, Str $body-html, Str $replay, Str :$css = '' --> Str) is
     </head>
     <body>
     {$body-html}
-    <script id="rakuweb-replay" type="application/json">{$replay}</script>
-    <script src="/_rakuweb/client.js"></script>
+    <script id="webraku-replay" type="application/json">{$replay}</script>
+    <script src="/_webraku/client.js"></script>
     {$dev-script}
     </body>
     </html>
@@ -157,20 +157,20 @@ sub finish-log(--> Str) { my $j = to-json($LOG // []); $LOG = Nil; $j }
 
 sub render-page(Route $r, %params, Request $req --> Str) {
     start-log();
-    my $root = Element.new(tag => 'div', attrs => { id => 'rakuweb-root' });
+    my $root = Element.new(tag => 'div', attrs => { id => 'webraku-root' });
     {
-        my $*RAKUWEB-REQUEST = $req;
+        my $*WEBRAKU-REQUEST = $req;
         $REQUEST = $req;
         my @args = $r.param-names.map({ %params{$_} });
         with-parent($root, { $r.body.(|@args) });
     }
     my $replay = finish-log();
-    document($r.title, $root.html, $replay, css => rakuweb-css());
+    document($r.title, $root.html, $replay, css => webraku-css());
 }
 
 my $CSS = '';
 sub stylesheet(Str $css) is export { $CSS = $css }
-sub rakuweb-css(--> Str) { $CSS }
+sub webraku-css(--> Str) { $CSS }
 
 # ---------- HTTP ----------
 
@@ -205,8 +205,8 @@ sub handle(Str $method, Str $target, %headers, Str $body --> List) is export {
     my %query = parse-query($qs // '');
     my $req = Request.new(:$method, :$path, :%query, :%headers, :$body);
 
-    return (200, 'text/plain; charset=utf-8', $VERSION) if $path eq '/_rakuweb/version';
-    return (200, %MIME<js>, $CLIENT-JS)                 if $path eq '/_rakuweb/client.js';
+    return (200, 'text/plain; charset=utf-8', $VERSION) if $path eq '/_webraku/version';
+    return (200, %MIME<js>, $CLIENT-JS)                 if $path eq '/_webraku/client.js';
 
     # an `is server` call from the browser
     if $path.starts-with('/_rpc/') {
@@ -302,27 +302,27 @@ sub serve-one($conn, Bool :$log = True) is export {
 }
 
 #| Start the server. `$client-js` is the transpiled bundle, served at
-#| /_rakuweb/client.js and referenced by every page.
+#| /_webraku/client.js and referenced by every page.
 sub serve(Int :$port is copy = 8080, Str :$host = '127.0.0.1', Str :$client-js is copy = '',
           Bool :$dev is copy = False, Bool :$log = True) is export {
-    # `rakuweb run` builds the bundle and names it here, so that the program
+    # `webraku run` builds the bundle and names it here, so that the program
     # itself carries no build concern: an application's last line is `serve;`
     # whether it was started by the tool or by hand.
-    with %*ENV<RAKUWEB_CLIENT_JS_FILE> -> $f {
+    with %*ENV<WEBRAKU_CLIENT_JS_FILE> -> $f {
         $client-js = $f.IO.slurp if !$client-js && $f.IO.e;
     }
-    $port = +$_ with %*ENV<RAKUWEB_PORT>;
-    $dev  = True if %*ENV<RAKUWEB_DEV>;
+    $port = +$_ with %*ENV<WEBRAKU_PORT>;
+    $dev  = True if %*ENV<WEBRAKU_DEV>;
     $CLIENT-JS = $client-js;
     $DEV = $dev;
     my $listener = IO::Socket::INET.new(:localhost($host), :localport($port), :listen);
-    note "rakuweb: http://$host:$port/" ~ ($dev ?? '  (dev: the page reloads when the program changes)' !! '');
-    note "rakuweb: {@ROUTES.elems} routes, {%RPC.elems} server subs, client bundle {$client-js.chars} chars";
+    note "webraku: http://$host:$port/" ~ ($dev ?? '  (dev: the page reloads when the program changes)' !! '');
+    note "webraku: {@ROUTES.elems} routes, {%RPC.elems} server subs, client bundle {$client-js.chars} chars";
     loop {
         my $conn = $listener.accept;
         start {
             my $r = try serve-one($conn, :$log);
-            note "rakuweb: $!" if $!;
+            note "webraku: $!" if $!;
         }
     }
 }

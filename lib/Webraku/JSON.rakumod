@@ -1,4 +1,4 @@
-# Rakuweb::JSON — the JSON the framework needs, and no more.
+# Webraku::JSON — the JSON the framework needs, and no more.
 #
 # The framework has no dependencies, so it carries its own. It is small on
 # purpose: what crosses between the server and the browser is plain data —
@@ -8,7 +8,7 @@
 # It runs on both engines and under `--target=js`, where it is what the RPC
 # stub encodes its arguments with. (The browser could use its own JSON.parse
 # through `use JS`; one implementation on both sides is one thing to be wrong.)
-unit module Rakuweb::JSON;
+unit module Webraku::JSON;
 
 # ---------- writing ----------
 

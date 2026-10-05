@@ -1,10 +1,10 @@
 # Plan: one Raku program for the server and the browser
 
 **Status: BUILT 2026-09-13.** P0 through P4 landed in one sitting: the engine
-fixes, `Rakuweb::HTML`, `Rakuweb::Client`, `Rakuweb::Server`, the bundler with
+fixes, `Webraku::HTML`, `Webraku::Client`, `Webraku::Server`, the bundler with
 hydration and RPC, and three examples driven end to end in a real browser. What
 was left out is in *What this plan does not do* at the end, unchanged. The name is
-Rakuweb; the directory keeps its working name. See
+Webraku (it was Rakuweb until 2026-10-05; see [Name](#name)). See
 [README.md](README.md) for the user's side and *Where it stands* below for what
 each phase actually cost.
 
@@ -53,9 +53,9 @@ Rakudo v2026.08, Node v24.20.0 and Bun 1.4.0 on the benchmark machine (Darwin
 - **Five phases, each gated, all landed.** Engine fixes → HTML builders → the
   browser side → the server → the bundler with hydration and RPC, then three
   examples. What is deliberately left out is listed at the end.
-- **Name: Rakuweb**, which needs no explaining and sits beside `rakupp`,
-  `rakus` and `rakugrid`. The directory keeps its working name `rakuact`.
-  Four rounds of candidates are kept in [Name](#name).
+- **Name: Webraku** — Raku, the web variety: the last word names what it
+  is. It sits beside `rakupp`, `rakus` and `rakugrid`. The rounds of
+  candidates are kept in [Name](#name).
 
 ## What it replaces, piece by piece
 
@@ -119,7 +119,7 @@ Rules that follow:
 The counter, as it would read:
 
 ```raku
-use Rakuweb;
+use Webraku;
 
 page '/', {
     my $n = 0;
@@ -234,24 +234,24 @@ unchanged against a clean build of `HEAD` in a separate worktree (161 agreeing
 was — its own header says so — which is why the set, and not the exit code, is
 the measure.
 
-**P1 — `Rakuweb::HTML`.** The `Element` class and a builder per tag, in pure
+**P1 — `Webraku::HTML`.** The `Element` class and a builder per tag, in pure
 Raku. A page of every construct — nesting, loops, boolean attributes, void
 elements, `raw`, the three renamed tags, a custom tag — renders byte for byte
 identically under Rakudo and Raku++.
 
-**P2 — `Rakuweb::Client`.** DOM nodes, hydration by adoption, events as
+**P2 — `Webraku::Client`.** DOM nodes, hydration by adoption, events as
 Supplies, the per-turn reconcile, `render-list`. Checked in a real browser and
 not only under a stub, which is where the two hydration bugs surfaced that a
 stub could not have shown: the implicit `<tbody>` a parser inserts, and
 `.children` being an HTMLCollection in a browser but a copied Array from
 anything array-like.
 
-**P3 — `Rakuweb::Server`.** HTTP/1.1 over `IO::Socket::INET`, one thread per
+**P3 — `Webraku::Server`.** HTTP/1.1 over `IO::Socket::INET`, one thread per
 connection; `page`, `api`, `static`, `serve`, `$*REQUEST`, the document shell,
 the replay log, the dev reload. `handle` is a pure function of the request and
 the route table, so what the server answers is testable with no port.
 
-**P4 — the bundler, hydration, RPC.** `rakuweb build` assembles, stubs every
+**P4 — the bundler, hydration, RPC.** `webraku build` assembles, stubs every
 `is server` body, and transpiles. Verified end to end in a browser: the todo
 list adds, toggles, removes and clears, each one exactly one `POST /_rpc/…`,
 the server's file holding the result, and a reload serving it back and adopting
@@ -301,15 +301,22 @@ live one.
 
 ## Name
 
-**Decided: Rakuweb.** It needs no explaining, ever, and it sits in the family
-the rest of this work already uses — `rakupp` the engine, `rakus` the static
-server, `rakugrid`, `rakumap`, `rakujs`. The directory keeps its working name
-`rakuact`, which said "React, in Raku": honest about the lineage, and about the
-ceiling such a name sets.
+**Decided: Webraku** (2026-10-05). In an English compound the last word names
+the thing, so Webraku reads as a kind of Raku — Raku for the web, a dialect
+for this one area — where Rakuweb read as a kind of web. That is what the
+framework is: one Raku program on both sides, with `is server` marking where a
+part runs. It needs no explaining and stays in the family the rest of this
+work uses — `rakupp` the engine, `rakus` the static server, `rakugrid`,
+`rakumap`, `rakujs`.
 
-Four rounds of candidates came before it, and the reasoning is worth keeping
-because it is the reasoning that arrived here. Every name below was free in the
-ecosystem index (2026-09-06 copy, checked 2026-09-13).
+The program writes `use Webraku;` — one name only. A lowercase `use webraku;`
+was considered, since a dialect is close to a pragma, and left out so that
+there is a single spelling.
+
+Before 2026-10-05 the name was Rakuweb and the directory was called `rakuact`
+("React, in Raku"). Five rounds of candidates came before Webraku, and the
+reasoning is kept because it is what arrived here. The first four rounds were
+checked free in the ecosystem index (2026-09-06 copy, checked 2026-09-13).
 
 **Round one, a name of its own.** Monarch — the butterfly that migrates between
 two homes, in Camelia's family like Wings. Rejected: it is an ordinary English
@@ -331,11 +338,23 @@ Rakuduo, Rakutwin, Rakubridge, Rakulink, Rakuflux, Rakuforge, Rakuwright. One
 practical filter thinned this list: `rakupp` and `rakus` already exist as
 commands, so anything beginning `rakup-` or `rakus-` makes tab-completion
 ambiguous, which ruled out Rakusite, Rakustack, Rakuserve, Rakuspan and
-Rakupage.
+Rakupage. Rakuweb was chosen from this round and used until 2026-10-05.
 
-Distribution `Rakuweb`; modules `Rakuweb::HTML`, `Rakuweb::Route`,
-`Rakuweb::JSON`, `Rakuweb::Server`, `Rakuweb::Client`, `Rakuweb::Rpc`,
-`Rakuweb::Bundle`; the command is `rakuweb`.
+**Round five (2026-10-05).** Emit, after the keyword that drives every update —
+but emit-rs, a Rust diagnostics framework, already brands itself as plain
+`emit`; variants Emitto (Latin, "I send out"), Emitsu, Emittance, Reemit.
+Blends where Raku takes over the start of a word: Rakunect (connect) was the
+working name for a while, then Rakuncord, Rakuntinuum, Rakunverge, Rakumbine;
+anything containing "kuni" was ruled out. Raku, web and framework squeezed
+together: Fraku, Webku, Wraku, Rakuwerk. Translations of 楽 into European
+languages (Gemak, Leggiero, Eukolia) lost the link to Raku. Then an internet
+word in front of `raku`: Webraku, Netraku, Interaku, Hyperaku. Names built on
+Japanese words were dropped as a rule: a name should not carry meanings its
+author cannot check.
+
+Distribution `Webraku`; modules `Webraku::HTML`, `Webraku::Route`,
+`Webraku::JSON`, `Webraku::Server`, `Webraku::Client`, `Webraku::Rpc`,
+`Webraku::Bundle`; the command is `webraku`.
 
 ## What this plan does not do
 

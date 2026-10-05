@@ -1,4 +1,4 @@
-# Rakuweb::Bundle — assembling the browser program.
+# Webraku::Bundle — assembling the browser program.
 #
 # `rakupp --target=js` takes ONE file and refuses `use` of a user module, so the
 # client bundle is concatenated here: the framework's client half, then the
@@ -15,16 +15,16 @@
 #      handle, its file paths, or its secrets.
 #   2. `serve` at the end of the program is dropped, and a `mount` is appended
 #      in its place.
-unit module Rakuweb::Bundle;
+unit module Webraku::Bundle;
 
 #| Strip the lines a concatenated file must not carry: `unit module X;`,
-#| `use <a Rakuweb module>;` and `use lib …`. A `use` of something else (`use
+#| `use <a Webraku module>;` and `use lib …`. A `use` of something else (`use
 #| JS`) is kept, because the transpiler handles that one itself.
 sub strip-uses(Str $src --> Str) is export {
     $src.lines.map(-> $line {
         $line ~~ / ^ \s* 'unit' \s+ 'module' \s /                      ?? ''
      !! $line ~~ / ^ \s* 'use' \s+ 'lib' /                             ?? ''
-     !! $line ~~ / ^ \s* 'use' \s+ 'Rakuweb' [ '::' \w+ ]? \s* ';' /   ?? ''
+     !! $line ~~ / ^ \s* 'use' \s+ 'Webraku' [ '::' \w+ ]? \s* ';' /   ?? ''
      !! $line;
     }).join("\n");
 }
@@ -95,7 +95,7 @@ sub stub-server-subs(Str $src --> Str) is export {
         # `is server` is a trait this framework invents; the stub does not carry it.
         my $stub-head = $head.subst(/ \s* 'is' \s+ 'server' /, '');
         my @params = signature-params($head);
-        my $body = '{ await rakuweb-call(' ~ "'" ~ %f<name> ~ "', [" ~ @params.join(', ') ~ ']) }';
+        my $body = '{ await webraku-call(' ~ "'" ~ %f<name> ~ "', [" ~ @params.join(', ') ~ ']) }';
         $out = $out.substr(0, %f<head-start>.Int)
              ~ $stub-head ~ $body
              ~ $out.substr(%f<body-end>.Int + 1);
