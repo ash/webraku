@@ -16,14 +16,15 @@ use Webraku::Bundle;
 # both engines insist on the options coming before the command.
 my %*SUB-MAIN-OPTS = :named-anywhere;
 
-my $ROOT = $?FILE.IO.parent.parent;
-my $LIB  = $ROOT.add('lib');
+# In a checkout the application is run with `-I` this lib; installed, Webraku
+# is in the store and there is nothing to add.
+my $LIB = $?FILE.IO.parent.parent.add('lib');
 
-sub part(Str $rel --> Str) {
-    my $f = $LIB.add($rel);
-    die "webraku: $rel is missing from {$LIB}" unless $f.e;
-    strip-uses($f.slurp);
-}
+# The transpiler is Raku++'s, so both halves go to it even when zef installed
+# this script with a Rakudo wrapper. RAKUPP names a particular binary.
+my $ENGINE = $*RAKU.compiler.name eq 'Raku++' ?? $*EXECUTABLE.Str !! (%*ENV<RAKUPP> // 'rakupp');
+
+sub part(Str $rel --> Str) { strip-uses(framework-source($rel)) }
 
 #| The whole browser program, as one file of Raku.
 sub assemble(IO::Path $app --> Str) {
@@ -37,8 +38,8 @@ sub assemble(IO::Path $app --> Str) {
     @out.push: part('Webraku/HTML.rakumod');
     @out.push: part('Webraku/Route.rakumod');
     @out.push: part('Webraku/JSON.rakumod');
-    @out.push: part('Webraku/Client.rakumod');
-    @out.push: part('Webraku/Rpc.rakumod');
+    @out.push: part('client/Client.rakumod');
+    @out.push: part('client/Rpc.rakumod');
     @out.push: '';
     @out.push: '# ---- the application ----';
     # `serve` and `stylesheet` belong to the server; the browser never runs them.
@@ -92,7 +93,7 @@ sub client-js(IO::Path $app, Bool :$keep-raku = False --> Str) {
     my $out = $app.parent.add($app.basename.subst(/ '.raku' $ /, '') ~ '.client.js');
     # `-I` the application's directory: a module beside it that the browser's
     # code `use`s is compiled into the bundle from there.
-    my $p = run $*EXECUTABLE.Str, '--target=js', '--standalone', '-I', $app.parent.Str, $tmp.Str, '-o', $out.Str, :out, :err;
+    my $p = run $ENGINE, '--target=js', '--standalone', '-I', $app.parent.Str, $tmp.Str, '-o', $out.Str, :out, :err;
     my $err = $p.err.slurp(:close);
     $p.out.slurp(:close);
     unless $p.exitcode == 0 {
@@ -125,7 +126,7 @@ multi sub MAIN('run', Str $app, Int :$port = 8080, Bool :$dev = False, Bool :$ke
     %*ENV<WEBRAKU_CLIENT_JS_FILE> = $f.parent.add($f.basename.subst(/'.raku'$/, '') ~ '.client.js').Str;
     %*ENV<WEBRAKU_PORT> = $port.Str;
     %*ENV<WEBRAKU_DEV>  = $dev ?? '1' !! '';
-    my $p = run $*EXECUTABLE.Str, '-I', $LIB.Str, $f.Str;
+    my $p = run $ENGINE, |('-I', $LIB.Str if $LIB.add('Webraku.rakumod').e), $f.Str;
     exit $p.exitcode;
 }
 

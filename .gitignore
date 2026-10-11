@@ -7,3 +7,7 @@ examples/**/*.client.raku
 
 # editor/session scratch
 .claude/
+
+# fez writes its upload tarballs here
+sdist/
+*.tar.gz

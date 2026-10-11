@@ -36,6 +36,20 @@ sub strip-uses(Str $src, IO::Path :$beside, Str :$client = '' --> Str) is export
     }).join("\n");
 }
 
+#| The source of one part of the framework's browser half, `Webraku/HTML.rakumod`
+#| or `client/Client.rakumod`, from wherever this distribution is: a checkout
+#| or an installed store, on either engine. The shared parts are modules the
+#| server uses too, so they are read through `$?DISTRIBUTION`; the browser-only
+#| ones `use js`, which no Raku but Raku++ can precompile, so they are not
+#| modules of the distribution at all but resources.
+sub framework-source(Str $rel --> Str) is export {
+    my $src = $rel.starts-with('client/')
+        ?? (try %?RESOURCES{$rel}.IO.slurp)
+        !! (try $?DISTRIBUTION.content("lib/$rel").open.slurp(:close));
+    die "webraku: $rel is missing from the Webraku distribution" without $src;
+    $src
+}
+
 #| The file behind `use A::B;` in `$dir`, as `A/B.rakumod` (or `.pm6`), or Nil.
 sub local-module(Str $line, IO::Path $dir) is export {
     return Nil unless $line ~~ / ^ \s* 'use' \s+ (<[\w\-]>+ [ '::' <[\w\-]>+ ]*) \s* ';' /;
