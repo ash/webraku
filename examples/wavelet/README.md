@@ -1,14 +1,24 @@
 # Wavelet shrinkage
 
-A page for playing with the discrete wavelet transform. A test signal is buried
+A page for playing with wavelet transforms. A test signal is buried
 in noise, decomposed with
 [Math::Wavelet](https://github.com/ash/raku-modules/tree/main/Math-Wavelet),
-its detail coefficients thresholded, and reconstructed. Every control is a
-slider or a menu, and moving one redraws the page.
+its detail coefficients thresholded, and reconstructed. Below that, the
+continuous transform of the same signal is drawn as a scalogram. Every
+control is a slider or a menu, and moving one redraws the page.
 
 ```
 rakupp install Math::Wavelet
 webraku run examples/wavelet/wavelet.raku --port=8795
+```
+
+The page needs a Raku++ whose `--target=js` compiles `use`d modules (built
+after 2026-10-11), and Math::Wavelet 0.0.2, which adds the continuous
+transform. To run against a checkout of the module instead of an installed
+copy, point `RAKULIB` at it:
+
+```
+RAKULIB=../raku-modules/Math-Wavelet/lib webraku run examples/wavelet/wavelet.raku --port=8795
 ```
 
 ## What is on the page
@@ -34,31 +44,55 @@ What it draws:
 - ψ and φ, the wavelet and its scaling function, drawn by the cascade
   algorithm: a single 1 among zero coefficients, reconstructed;
 - σ as estimated, the threshold, how many coefficients were kept, and the
-  RMS error against the clean signal before and after.
+  RMS error against the clean signal before and after;
+- the scalogram, |W| of the continuous transform of the noisy or the clean
+  signal, under one of twelve continuous wavelets. Its 36 rows run from a
+  period of 2 samples at the top to 80 at the bottom. Each wavelet's scales
+  are found from its centre frequency, so every wavelet covers the same
+  band. Beside it is ψ, with the imaginary part dashed for a complex
+  wavelet.
 
 ## How it is split
 
 | file | runs on |
 |---|---|
 | `wavelet.raku` | both. The server runs it to render the page; `webraku build` turns it into the browser's script |
-| `Analysis.rakumod` | the server only. It holds the signals, the noise, the transform calls and the SVG path data |
+| `Analysis.rakumod` | both. It holds the signals, the noise, the transform calls, the SVG path data, and the scalogram's bitmap |
 
-`transform` is `is server`, so its body stays on the server. The browser's
-copy posts the seven control values to `/_rpc/transform` and gets back SVG
-path data and numbers that are already formatted: about 30 KB, in 60 ms
-for db4 on the machine this was written on. The first time a wavelet is
-asked for, its ψ and φ are computed as well, which for dmey takes 0.6 s.
-After that they are cached.
+`transform` is an ordinary sub. The server calls it to render the first
+picture, and in the browser it runs on every move of a control with no request:
+a median of 6 ms per step for db4 in the browser this was measured in, against
+60 ms on the server plus the round trip when it was an `is server` call.
 
-`use Analysis` stays out of the browser bundle because the module lives beside
-the application. The transpiler cannot load a user module, so the bundler
-leaves out a `use` of one found in the application's directory. Math::Wavelet
-reaches the server through `Analysis`, so all 106 filter banks stay there too.
+It can, because `rakupp --target=js` compiles `use`d modules into the program.
+The browser's code calls `analyse`, which `Analysis` exports, so the bundler
+keeps `use Analysis` and passes the application's directory to rakupp as `-I`.
+`Analysis` uses Math::Wavelet, which comes too, all 106 filter tables of it.
+The script is about 750,000 characters.
 
-The first render needs no request. The server's call to `transform` is in
-the page's replay log, so the page arrives already drawn, and it shows a
-complete picture with JavaScript switched off.
+Getting Math::Wavelet through the transpiler took, besides module support
+itself, twelve fixes in Raku++'s JavaScript backend. Among them are
+hyphenated attributes (`@!dec-lo` read as empty), one-letter constants (`N`
+and `H` were one variable), a sub declared in a class body, `Lock`, `.Map`,
+`cis`, and `.max(:by)` on a Range. Each is checked in Raku++'s JS gate.
 
-A slider sends an input event for every step it is dragged through, and the
-answers can come back out of order. Each request takes a number, and an
-answer that is not for the latest request is dropped.
+The scalogram is a server sub, `scales`. It answers with the image as a
+`data:` URI: a 256 × 36 BMP of 27 KB, written byte by byte in
+`Analysis.rakumod`, where as SVG it would be ten thousand rectangles. One
+answer takes 1–2.7 s on Raku++, depending on the wavelet (`fbsp` is the
+slowest). The same code compiled for the browser takes 0.6 s for
+`cmor1.5-1.0` under node. Making `scales` a plain sub would move it too; it
+stays on the server for now. So it is asked for only when the signal, the seed or the
+continuous wavelet changes, the noise slider asks only when it is let go,
+and "computing…" shows meanwhile. The DWT sliders never touch it.
+
+The first render needs no request. The page arrives already drawn, the
+server's call to `scales` is in the page's replay log, and the browser
+computes the same `transform` the server did. With JavaScript switched off
+it shows a complete picture. The scalogram makes that first render take
+about a second longer.
+
+The scalogram can have two requests in flight, if the noise slider is let go
+twice in quick succession, and their answers can come back out of order.
+Each request takes a number, and an answer that is not for the latest
+request is dropped.

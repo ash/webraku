@@ -1,11 +1,11 @@
 # Webraku::Bundle — assembling the browser program.
 #
-# `rakupp --target=js` takes ONE file and refuses `use` of a user module, so the
-# client bundle is concatenated here: the framework's client half, then the
-# application, with the `use` and `unit module` lines stripped. This is the same
-# step the three `--target=js` showcases in the rakupp repository perform by
-# hand. When the emitter learns to resolve `use`, this file becomes a call to it
-# and nothing else changes.
+# The client bundle is concatenated here: the framework's client half, then
+# the application, with the framework's `use` and `unit module` lines stripped.
+# The application's own `use`s are another matter: `rakupp --target=js`
+# compiles a `use`d module into the program, so a module the browser's code
+# calls is kept and found through `-I` (see strip-uses). The framework could go
+# the same way; it is still concatenated, and nothing depends on which.
 #
 # Two rewrites happen on the way, and they are the whole of what makes one file
 # run in two places:
@@ -19,31 +19,42 @@ unit module Webraku::Bundle;
 
 #| Strip the lines a concatenated file must not carry: `unit module X;`,
 #| `use <a Webraku module>;` and `use lib …`. A `use` of something else (`use
-#| JS`) is kept, because the transpiler handles that one itself.
+#| js`, an installed module) is kept: the transpiler compiles it in.
 #|
 #| With `$beside`, the application's directory, a `use` of a module that lives
-#| there goes too. The transpiler refuses a user module, so such a module can
-#| only ever be the server's: the code that calls it is in `is server` bodies,
-#| which the browser does not get either. Without this the `use` would have to
-#| sit inside those bodies, and a `use` there is loaded by the first call
-#| rather than at compile time — under Raku++, two first calls at once then
-#| collide in the module loader.
-sub strip-uses(Str $src, IO::Path :$beside --> Str) is export {
+#| there is kept only when `$client`, the browser's code with the `is server`
+#| bodies already stubbed out, calls something the module exports. A module
+#| that only `is server` code calls is the server's alone, and its source —
+#| and whatever IT uses — stays out of the browser.
+sub strip-uses(Str $src, IO::Path :$beside, Str :$client = '' --> Str) is export {
     $src.lines.map(-> $line {
         $line ~~ / ^ \s* 'unit' \s+ 'module' \s /                      ?? ''
      !! $line ~~ / ^ \s* 'use' \s+ 'lib' /                             ?? ''
      !! $line ~~ / ^ \s* 'use' \s+ 'Webraku' [ '::' \w+ ]? \s* ';' /   ?? ''
-     !! ($beside && local-module($line, $beside))                      ?? ''
+     !! ($beside && server-only($line, $beside, $client))              ?? ''
      !! $line;
     }).join("\n");
 }
 
-#| Whether `$line` is a `use` of a module found in `$dir`, as `A/B.rakumod`
-#| (or `.pm6`) for `use A::B`.
-sub local-module(Str $line, IO::Path $dir --> Bool) {
-    return False unless $line ~~ / ^ \s* 'use' \s+ (<[\w\-]>+ [ '::' <[\w\-]>+ ]*) \s* ';' /;
+#| The file behind `use A::B;` in `$dir`, as `A/B.rakumod` (or `.pm6`), or Nil.
+sub local-module(Str $line, IO::Path $dir) is export {
+    return Nil unless $line ~~ / ^ \s* 'use' \s+ (<[\w\-]>+ [ '::' <[\w\-]>+ ]*) \s* ';' /;
     my $rel = (~$0).split('::').join('/');
-    so <rakumod pm6>.first({ $dir.add("$rel.$_").f });
+    <rakumod pm6>.map({ $dir.add("$rel.$_") }).first(*.f)
+}
+
+#| The names a module's `sub … is export` declarations export.
+sub module-exports(IO::Path $file --> List) is export {
+    $file.slurp.match(:g, / 'sub' \s+ (<[\w\-]>+) <-[{;]>*? 'is' \s+ 'export' /).map(*[0].Str).List
+}
+
+#| Whether `$line` uses a module beside the application that the browser's
+#| code never calls.
+sub server-only(Str $line, IO::Path $dir, Str $client --> Bool) {
+    my $file = local-module($line, $dir);
+    return False without $file;
+    my @names = module-exports($file);
+    !@names.first(-> $n { $client ~~ / <!after <[\w\-]>> $n <!before <[\w\-]>> / })
 }
 
 #| Find every `sub NAME(...) is server { ... }` in the source and report

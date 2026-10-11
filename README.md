@@ -77,7 +77,7 @@ fourth puts them together in a page with a module of its own.
 | [`counter.raku`](examples/counter.raku) | **client-side only.** After the page loads there is no network traffic at all: clicks and a one-second timer are handled by the `react` block in the browser. | `webraku run examples/counter.raku --port=8791` |
 | [`primes.raku`](examples/primes.raku) | **server-side computation.** The sieve of Eratosthenes is `is server`, so its body is not in the browser bundle — only its answer, which the server wrote into the HTML. `/primes/500` is a route parameter. | `webraku run examples/primes.raku --port=8793` |
 | [`todo.raku`](examples/todo.raku) | **over the network.** The list is a file on the server. Add, toggle, remove and clear are `is server`, so each one is a `POST /_rpc/<name>` the author never wrote. The first render comes from the replay log and costs no request. | `webraku run examples/todo.raku --port=8794` |
-| [`wavelet/`](examples/wavelet/) | **both halves, with a library.** Sliders and menus in the browser; [Math::Wavelet](https://github.com/ash/raku-modules/tree/main/Math-Wavelet) on the server, through a module beside the page that the bundle leaves out. Each move of a control is one `is server` call that answers with SVG path data. | `webraku run examples/wavelet/wavelet.raku --port=8795` |
+| [`wavelet/`](examples/wavelet/) | **both halves, with a library.** [Math::Wavelet](https://github.com/ash/raku-modules/tree/main/Math-Wavelet) and a module beside the page are compiled into the browser's script, so a slider redraws the plots with no request. The scalogram is an `is server` call that answers with an image. | `webraku run examples/wavelet/wavelet.raku --port=8795` |
 
 The primes example is the one to read first if the claim sounds too good:
 search `primes.client.js` for the sieve's algorithm and it is not there, then
@@ -123,10 +123,13 @@ and awaits the answer. Arguments and results must be plain data — numbers,
 strings, booleans, arrays, hashes. An element changed after the answer
 arrives is reconciled into the page, the same as one changed by a handler.
 
-**Server-only modules.** A `use` of a module that lives beside the application
-— `use Analysis` for an `Analysis.rakumod` in the same directory — is left out
-of the browser bundle, since the transpiler cannot load a user module anyway.
-Call such a module only from `is server` bodies.
+**Modules.** `rakupp --target=js` compiles a `use`d module into the browser's
+script, and so does an installed one. A module that lives beside the
+application, such as `use Analysis` for an `Analysis.rakumod` in the same
+directory, gets one more rule. It goes into the browser's script only when the
+browser's code calls something it exports, which is what remains once the
+`is server` bodies are stubbed. A module that only `is server` code calls stays
+on the server, along with everything it uses.
 
 ## Layout
 
@@ -144,9 +147,9 @@ bin/webraku                  build / run / bundle
 
 `webraku build` concatenates the framework's browser half with the application,
 replaces every `is server` body with the RPC stub, and runs
-`rakupp --target=js --standalone`. Concatenation is needed only because the
-transpiler takes one file and refuses `use` of a user module; when it learns to
-resolve `use`, that step goes away and nothing else changes.
+`rakupp --target=js --standalone -I <the application's directory>`. The
+application's own `use`s are compiled in by rakupp. The framework is still
+concatenated, though rakupp could take it as modules too.
 
 ## Status
 

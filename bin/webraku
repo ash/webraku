@@ -43,7 +43,10 @@ sub assemble(IO::Path $app --> Str) {
     @out.push: '# ---- the application ----';
     # `serve` and `stylesheet` belong to the server; the browser never runs them.
     # `page` is kept, and the mount below picks the one matching the URL.
-    my $client = stub-server-subs(strip-uses($src, beside => $app.parent));
+    # Stub first: whether the browser needs a module beside the application
+    # depends on what is left to call it once the `is server` bodies are gone.
+    my $stubbed = stub-server-subs($src);
+    my $client = strip-uses($stubbed, beside => $app.parent, client => $stubbed);
     $client = drop-server-calls($client);
     @out.push: $client;
     @out.push: '';
@@ -87,7 +90,9 @@ sub client-js(IO::Path $app, Bool :$keep-raku = False --> Str) {
     my $tmp = $app.parent.add($app.basename.subst(/ '.raku' $ /, '') ~ '.client.raku');
     $tmp.spurt: $bundle;
     my $out = $app.parent.add($app.basename.subst(/ '.raku' $ /, '') ~ '.client.js');
-    my $p = run $*EXECUTABLE.Str, '--target=js', '--standalone', $tmp.Str, '-o', $out.Str, :out, :err;
+    # `-I` the application's directory: a module beside it that the browser's
+    # code `use`s is compiled into the bundle from there.
+    my $p = run $*EXECUTABLE.Str, '--target=js', '--standalone', '-I', $app.parent.Str, $tmp.Str, '-o', $out.Str, :out, :err;
     my $err = $p.err.slurp(:close);
     $p.out.slurp(:close);
     unless $p.exitcode == 0 {

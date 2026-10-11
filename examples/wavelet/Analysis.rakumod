@@ -219,3 +219,102 @@ sub analyse(Str $signal, Real $noise, Int $seed, Str $wavelet, Int $want-level,
             !! '—',
     );
 }
+
+# ---------- the continuous transform ----------
+#
+# The scalogram is |W(scale, t)| for the signal on the page, drawn as a small
+# bitmap: one row per scale, the highest frequency at the top, and a column
+# per pair of samples. A bitmap rather than SVG, because it is 36 × 256 cells:
+# as rectangles that is ten thousand elements per redraw, as a BMP it is 27 KB.
+#
+# The rows are spaced by FREQUENCY, from the Nyquist limit down to a period of
+# 80 samples, and each wavelet's scales are found from its centre frequency.
+# A fixed range of scales would mean a different band for every wavelet.
+
+constant CWT-ROWS = 36;
+constant CWT-COLS = 256;
+constant F-HIGH   = 0.5e0;
+constant F-LOW    = 1e0 / 80;
+my @CWT-FREQ = (^CWT-ROWS).map({ F-HIGH * (F-LOW / F-HIGH) ** ($_ / (CWT-ROWS - 1)) });
+
+#| A colour from 0 (dark) to 1 (bright), along viridis' five anchors.
+my @VIRIDIS = (68, 1, 84), (59, 82, 139), (33, 145, 140), (94, 201, 98), (253, 231, 37);
+sub viridis(Real $v --> List) {
+    my $x = ($v max 0) min 1;
+    my $i = ($x * 4).floor min 3;
+    my $f = $x * 4 - $i;
+    (^3).map({ (@VIRIDIS[$i][$_] * (1 - $f) + @VIRIDIS[$i + 1][$_] * $f).round }).List
+}
+
+#| A 24-bit BMP, top row first, as a list of byte values.
+sub bmp(@rows --> List) {
+    my $h = +@rows;
+    my $w = +@rows[0];
+    my $stride = ($w * 3 + 3) div 4 * 4;
+    my $size = 54 + $stride * $h;
+    my @b;
+    sub le(Int $v, Int $n) { @b.append: (^$n).map({ ($v +> (8 * $_)) +& 255 }) }
+    @b.append: 66, 77;                 # 'BM'
+    le($size, 4); le(0, 4); le(54, 4);
+    le(40, 4); le($w, 4); le(2 ** 32 - $h, 4);   # a negative height: top-down
+    le(1, 2); le(24, 2); le(0, 4); le($stride * $h, 4);
+    le(2835, 4); le(2835, 4); le(0, 4); le(0, 4);
+    for @rows -> @row {
+        for @row -> ($r, $g, $bl) { @b.append: $bl, $g, $r }
+        @b.append: 0 xx ($stride - $w * 3);
+    }
+    @b.List
+}
+
+my @B64 = |('A'..'Z'), |('a'..'z'), |('0'..'9'), '+', '/';
+sub base64(@bytes --> Str) {
+    my @out;
+    for @bytes.rotor(3, :partial) -> @t {
+        my $n = (@t[0] +< 16) + ((@t[1] // 0) +< 8) + (@t[2] // 0);
+        my @c = (18, 12, 6, 0).map({ @B64[($n +> $_) +& 63] });
+        @c[3] = '=' if @t < 3;
+        @c[2] = '=' if @t < 2;
+        @out.push: @c.join;
+    }
+    @out.join
+}
+
+#| The scalogram of the clean or the noisy signal under one continuous
+#| wavelet, with ψ drawn beside it and the frequencies its scales stand for.
+sub scalogram(Str $signal, Real $noise, Int $seed, Str $wavelet, Str $which --> Hash) is export {
+    my @clean = clean-signal($signal);
+    my @x = $which eq 'clean'
+        ?? @clean
+        !! do { my @g = gaussian-noise($seed); (^N).map({ @clean[$_] + $noise * @g[$_] }) };
+    my $w = wavelet($wavelet);
+    my $cf = central-frequency($w, :precision(10));
+    my @scales = @CWT-FREQ.map({ $cf / $_ });
+    my ($coef, $freq) = cwt(@x, @scales, $w, :method<fft>);
+
+    # |W|, averaged over each pair of samples, and scaled to the largest.
+    my $per = N div CWT-COLS;
+    my @mag = $coef.map(-> @row {
+        (^CWT-COLS).map(-> $c { (^$per).map({ @row[$c * $per + $_].abs }).sum / $per }).List
+    });
+    my $top = @mag.map(*.max).max || 1;
+    my @pixels = @mag.map(-> @row { @row.map({ viridis(($_ / $top) ** .8) }).List });
+
+    my ($psi, $grid) = $w.wavefun(:level(9));
+    my @re = $psi.map({ $_ ~~ Complex ?? .re !! $_ });
+    my @im = $w.complex-cwt ?? $psi.map(*.im) !! ();
+    my $m = (|@re».abs, |@im».abs).max * 1.1 || 1;
+
+    %(
+        image   => 'data:image/bmp;base64,' ~ base64(bmp(@pixels)),
+        psi-re  => line-path(@re, -$m, $m, 120),
+        psi-im  => @im ?? line-path(@im, -$m, $m, 120) !! '',
+        top     => "top row: a period of {fmt(1 / $freq[0], 0)} samples, scale {fmt(@scales[0], 2)}",
+        bottom  => "bottom row: {fmt(1 / $freq[*-1], 0)} samples, scale {fmt(@scales[*-1], 1)}",
+        about   => $w.family
+                   ~ ($w.complex-cwt ?? ' — complex, so |W| is the envelope'
+                                     !! ' — real, so |W| ripples with the phase')
+                   ~ "; centre frequency {fmt($cf, 4)}",
+        support => "ψ on [{$w.lower-bound.Int}, {$w.upper-bound.Int}]"
+                   ~ ($w.complex-cwt ?? '; solid is its real part, dashed its imaginary part' !! ''),
+    );
+}

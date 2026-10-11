@@ -188,8 +188,10 @@ tree in a document shell with the CSS and script tags. `static $dir` serves
 files. `serve :port` starts the server; under `--exe` the client bundle is
 embedded in the binary, so the deployment is one file.
 
-**The bundler.** `--target=js` takes one file and refuses `use` of a user
-module, so the client bundle is assembled by the framework, as the three
+**The bundler.** `--target=js` took one file and refused `use` of a user
+module when this was written (it compiles `use`d modules since 2026-10-11, and
+the bundler now keeps an application's own `use`s), so the client bundle is
+assembled by the framework, as the three
 `--target=js` showcases in the rakupp repository do by hand: the client
 half of the framework, then the application with its `use` line stripped
 and each `is server` body replaced by the stub (line ranges from
