@@ -22,6 +22,10 @@ use Webraku::JSON;
 my @REPLAY;
 my %USED;
 
+# Webraku::Client installs this, to reconcile after an answer arrives.
+my &ANSWERED = -> { };
+sub webraku-rpc-hook(&hook) is export { &ANSWERED = &hook }
+
 #| Read the log the server embedded. Called once, before the first render.
 sub webraku-load-replay() is export {
     my $tag = JS.document.getElementById('webraku-replay');
@@ -54,5 +58,9 @@ sub webraku-call(Str $name, @args) is export {
     my $text = await $res.text;
     my %answer = from-json($text);
     die "webraku: $name — %answer<error>" if %answer<error>:exists;
+    # The event turn that made this call has long been reconciled, and what the
+    # caller does with the answer happens after this returns. So a reconcile is
+    # asked for now, to run after that.
+    ANSWERED();
     %answer<result>;
 }

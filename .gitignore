@@ -1,7 +1,7 @@
 # The browser bundles are build output: `webraku build` writes them.
-examples/*.client.js
-examples/*.client.js.map
-examples/*.client.raku
+examples/**/*.client.js
+examples/**/*.client.js.map
+examples/**/*.client.raku
 .precomp/
 .DS_Store
 

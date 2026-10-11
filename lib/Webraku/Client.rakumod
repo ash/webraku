@@ -240,6 +240,12 @@ sub mount(&body, :$selector = 'body', Bool :$hydrate = False) is export {
     webraku-element-hook(&make-node);
     webraku-scope-hook(&scope-in, &scope-out);
     webraku-listen-hook(&listen);
+    # A handler that awaits a server call changes the page after its event turn
+    # is over, so the reconcile that turn scheduled has already run. A microtask
+    # queued when the answer arrives would run too early as well — before the
+    # caller's own continuation — so this one is a task, which runs after every
+    # continuation the answer releases.
+    webraku-rpc-hook({ JS.setTimeout(-> { reconcile() }, 0) });
     # A page body ends in a `react`, and a `react` in a browser never returns —
     # it is the page, for as long as the page is open — and a body that calls an
     # `is server` sub suspends at its first `await`. So there is no moment "after

@@ -67,15 +67,17 @@ webraku run examples/counter.raku
 | Bun: runtime, bundler, server | Raku++, `--target=js`, and `Webraku::Server` |
 | npm packages | `use JS` reaches any browser API; the framework needs nothing else |
 
-## The three examples
+## The examples
 
-Each is one file, and each shows one half of the idea.
+The first three are one file each, and each shows one half of the idea. The
+fourth puts them together in a page with a module of its own.
 
 | example | what it demonstrates | run it |
 |---|---|---|
 | [`counter.raku`](examples/counter.raku) | **client-side only.** After the page loads there is no network traffic at all: clicks and a one-second timer are handled by the `react` block in the browser. | `webraku run examples/counter.raku --port=8791` |
 | [`primes.raku`](examples/primes.raku) | **server-side computation.** The sieve of Eratosthenes is `is server`, so its body is not in the browser bundle — only its answer, which the server wrote into the HTML. `/primes/500` is a route parameter. | `webraku run examples/primes.raku --port=8793` |
 | [`todo.raku`](examples/todo.raku) | **over the network.** The list is a file on the server. Add, toggle, remove and clear are `is server`, so each one is a `POST /_rpc/<name>` the author never wrote. The first render comes from the replay log and costs no request. | `webraku run examples/todo.raku --port=8794` |
+| [`wavelet/`](examples/wavelet/) | **both halves, with a library.** Sliders and menus in the browser; [Math::Wavelet](https://github.com/ash/raku-modules/tree/main/Math-Wavelet) on the server, through a module beside the page that the bundle leaves out. Each move of a control is one `is server` call that answers with SVG path data. | `webraku run examples/wavelet/wavelet.raku --port=8795` |
 
 The primes example is the one to read first if the claim sounds too good:
 search `primes.client.js` for the sieve's algorithm and it is not there, then
@@ -118,7 +120,13 @@ directly instead: `$b.clicks.tap: { … }`.
 **`is server`.** The body runs on the server; `serve` publishes it at
 `/_rpc/<name>`; the browser's copy is a call that posts the arguments as JSON
 and awaits the answer. Arguments and results must be plain data — numbers,
-strings, booleans, arrays, hashes.
+strings, booleans, arrays, hashes. An element changed after the answer
+arrives is reconciled into the page, the same as one changed by a handler.
+
+**Server-only modules.** A `use` of a module that lives beside the application
+— `use Analysis` for an `Analysis.rakumod` in the same directory — is left out
+of the browser bundle, since the transpiler cannot load a user module anyway.
+Call such a module only from `is server` bodies.
 
 ## Layout
 

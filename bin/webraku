@@ -12,6 +12,10 @@
 use lib $?FILE.IO.parent.parent.add('lib').Str;
 use Webraku::Bundle;
 
+# `webraku run app.raku --port=8080` is how the README writes it; without this,
+# both engines insist on the options coming before the command.
+my %*SUB-MAIN-OPTS = :named-anywhere;
+
 my $ROOT = $?FILE.IO.parent.parent;
 my $LIB  = $ROOT.add('lib');
 
@@ -39,7 +43,7 @@ sub assemble(IO::Path $app --> Str) {
     @out.push: '# ---- the application ----';
     # `serve` and `stylesheet` belong to the server; the browser never runs them.
     # `page` is kept, and the mount below picks the one matching the URL.
-    my $client = stub-server-subs(strip-uses($src));
+    my $client = stub-server-subs(strip-uses($src, beside => $app.parent));
     $client = drop-server-calls($client);
     @out.push: $client;
     @out.push: '';
