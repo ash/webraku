@@ -99,6 +99,11 @@ stylesheet q:to/CSS/;
     .cpsi path.re { stroke: var(--den); stroke-width: 1.6 }
     .cpsi path.im { stroke: var(--band); stroke-width: 1.3; stroke-dasharray: 4 3 }
     .cpsi .cap { font-size: .82rem; color: var(--muted) }
+    .src { margin: 1.4rem 0 0 }
+    .src h3 { font-size: .85rem; color: var(--muted); font-weight: 600; margin: 0 0 .35rem }
+    .src pre { margin: 0; padding: .8rem 1rem; background: #f4f2ec; border: 1px solid var(--rule);
+               border-radius: .4rem; font: .78rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+               overflow-x: auto; white-space: pre; color: var(--ink) }
     code { background: #eceae4; padding: .05rem .3rem; border-radius: .25rem; font-size: .9em }
     @media (max-width: 52rem) {
         .layout { grid-template-columns: 1fr }
@@ -148,6 +153,49 @@ sub choice(Str $title, @choices, Str $value) {
 
 sub two(Real $x --> Str) { (($x * 100).round / 100).Str }
 
+#| The Raku that makes the discrete transform on the page, for the settings it
+#| was made with: what `analyse` in Analysis.rakumod does, written out with
+#| Math::Wavelet's own calls. `$level` is the level used, which a long filter
+#| may have capped.
+sub dwt-source(Str $signal, Real $noise, Int $seed, Str $wavelet, Int $level, Real $mult, Str $mode --> Str) {
+    my $k = sprintf('%.2f', $mult);
+    qq:to/RAKU/.chomp;
+    use Math::Wavelet;
+
+    # @x: the $signal signal, 512 samples, plus Gaussian noise of σ {two($noise)} (seed $seed)
+    # [cA$level, cD$level, …, cD1]
+    my @c = wavedec(@x, '$wavelet', :level($level));
+
+    # the noise, estimated from the finest details, and VisuShrink's threshold × $k
+    my \$sigma = noise-sigma(\@c[*-1]);
+    my \$thr = $k * \$sigma * sqrt(2 * log(+@x));
+
+    # every detail level thresholded, the approximation left alone
+    \@c[1..*] = \@c[1..*].map(\{ threshold(\$_, \$thr, :mode<$mode>) });
+    my @denoised = waverec(@c, '$wavelet').head(+@x);
+    RAKU
+}
+
+#| …and the continuous one: the scalogram's 36 rows run from a period of 2
+#| samples to 80, and each frequency becomes a scale through the wavelet's
+#| centre frequency.
+sub cwt-source(Str $wavelet, Str $which --> Str) {
+    qq:to/RAKU/.chomp;
+    use Math::Wavelet;
+
+    # @x: the $which signal, 512 samples
+    # 36 frequencies, from a period of 2 samples down to one of 80
+    my @f = (^36).map(\{ 0.5 * (1/80 / 0.5) ** (\$_ / 35) });
+
+    # each as a scale, through the wavelet's centre frequency at scale 1
+    my \$cf = central-frequency('$wavelet', :precision(10));
+    my (\$W, \$freq) = cwt(@x, \@f.map(\{ \$cf / \$_ }), '$wavelet', :method<fft>);
+
+    # |W|, one row per scale: the picture above
+    my @image = \$W.map(*.map(*.abs));
+    RAKU
+}
+
 page '/', :title('Wavelet shrinkage'), {
     # The controls' state. The page starts here, and every handler below
     # changes one of these and asks the server again.
@@ -166,7 +214,7 @@ page '/', :title('Wavelet shrinkage'), {
 
     my ($s-signal, $s-wavelet, $s-mode, $reseed, $seed-note);
     my ($s-noise, $o-noise, $s-level, $o-level, $s-mult, $o-mult);
-    my ($level-note, $thr-note, $family);
+    my ($level-note, $thr-note, $family, $dwt-src, $cwt-src);
     my ($p-clean, $p-noisy, $p-den, $p-appr, $appr-lab, $appr-info, $psi, $phi);
     my (@row, @lab, @on, @off, @band, @info);
     my ($s-cwave, $s-which, $c-img, $c-top, $c-bottom, $c-busy, $c-re, $c-im, $c-about, $c-support);
@@ -279,6 +327,11 @@ page '/', :title('Wavelet shrinkage'), {
 
                 $family = p %r<family>, :class<foot>;
 
+                div :class<src>, {
+                    h3 'The same, in Raku';
+                    $dwt-src = pre dwt-source($signal, $noise, $seed, $wname, %r<level>, $mult, $mode);
+                }
+
                 div :class<cwt>, {
                     h2 'The continuous transform';
                     div :class<ctls>, {
@@ -312,6 +365,10 @@ page '/', :title('Wavelet shrinkage'), {
                             $c-support = p %c<support>;
                         }
                     }
+                    div :class<src>, {
+                        h3 'The same, in Raku';
+                        $cwt-src = pre cwt-source($cname, $which);
+                    }
                 }
             }
         }
@@ -330,6 +387,7 @@ page '/', :title('Wavelet shrinkage'), {
         $level-note.text = %n<level-note>;
         $thr-note.text = "σ√(2 ln n) = %n<universal>";
         $family.text = %n<family>;
+        $dwt-src.text = dwt-source($signal, $noise, $seed, $wname, %n<level>, $mult, $mode);
         for ^ROWS -> $k {
             my %row = %n<rows>[$k];
             @row[$k].set('class', %row<show> ?? 'row' !! 'row off');
@@ -362,6 +420,7 @@ page '/', :title('Wavelet shrinkage'), {
         $c-im.set('d', %n<psi-im>);
         $c-about.text = %n<about>;
         $c-support.text = %n<support>;
+        $cwt-src.text = cwt-source($cname, $which);
         $c-busy.text = '';
     }
 
