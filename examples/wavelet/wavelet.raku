@@ -1,5 +1,5 @@
 #!/usr/bin/env rakupp
-# Wavelet shrinkage — Math::Wavelet compiled into the page, sliders and all.
+# Wavelet shrinkage — Math::Wavelet in the browser, and on the server for the scalogram.
 #
 #     rakupp install Math::Wavelet          # 0.0.2 or later, for the scalogram
 #     webraku run examples/wavelet/wavelet.raku --port=8795
@@ -17,15 +17,14 @@
 #   `rakupp --target=js` compiles both into the page's script, because the
 #   browser's code calls something `Analysis` exports.
 #
-#   `scales`, the scalogram, is an ordinary sub too. It takes the better part
-#   of a second even in the browser, so it is redone only when the signal or
-#   the continuous wavelet changes, and the noise slider redoes it only when
-#   let go.
+#   `scales` is `is server`: its body stays on the server, and the browser's
+#   copy posts five values and gets the scalogram back as an image. It is
+#   asked for only when the signal or the continuous wavelet changes, and the
+#   noise slider asks only when let go.
 #
-#   Nothing here is `is server` any more: after the page and its script have
-#   loaded, the browser asks the server for nothing. The server renders the
-#   first picture, so the page also works as a static one with JavaScript
-#   switched off.
+#   The first render needs no request either way: the page arrives drawn, the
+#   scalogram's call is in the replay log, and it all works as a static
+#   picture with JavaScript switched off.
 use Webraku;
 use lib $?FILE.IO.parent.Str;
 use Analysis;
@@ -117,9 +116,9 @@ sub transform(Str $signal, Real $noise, Int $seed, Str $wavelet, Int $level,
 }
 
 #| The scalogram: the continuous transform of the clean or the noisy signal
-#| under one continuous wavelet, as an image, with ψ beside it. Like
-#| `transform`, it runs wherever the page does.
-sub scales(Str $signal, Real $noise, Int $seed, Str $wavelet, Str $which) {
+#| under one continuous wavelet, as an image, with ψ beside it. On the
+#| server, and asked for only when the signal or the wavelet changes.
+sub scales(Str $signal, Real $noise, Int $seed, Str $wavelet, Str $which) is server {
     scalogram($signal, $noise, $seed, $wavelet, $which);
 }
 
@@ -178,7 +177,7 @@ page '/', :title('Wavelet shrinkage'), {
         p raw('A signal in noise, taken apart by a discrete wavelet transform, its small '
               ~ 'detail coefficients thresholded away, and put back together. The transform is '
               ~ '<code>Math::Wavelet</code>, compiled with the rest of this page from Raku into '
-              ~ 'the script your browser runs, so nothing below asks the server for anything.'),
+              ~ 'the script your browser runs; only the scalogram below is computed on the server.'),
           :class<sub>;
 
         div :class<layout>, {
@@ -346,29 +345,24 @@ page '/', :title('Wavelet shrinkage'), {
     # In the browser this is a plain call, finished before the next input event.
     sub redraw() { show(transform($signal, $noise, $seed, $wname, $level, $mult, $mode)) }
 
-    # The scalogram takes the better part of a second, and a call made here
-    # would block the page before "computing…" could be drawn. So the work
-    # waits for `after`: the event turn ends, the note is drawn, and the
-    # result is drawn when it is done (`after` reconciles once its tap has
-    # run). A second change before the timer fires makes the first one moot,
-    # and the number each request takes skips it.
+    # The scalogram is a request, and a slider let go twice can have two in
+    # flight whose answers come back out of order. Each takes a number, and an
+    # answer that is not the latest one is dropped rather than drawn over a
+    # newer one.
     my $c-asked = 0;
     sub rescale() {
         my $mine = ++$c-asked;
         $c-busy.text = 'computing…';
-        after(0.02).tap: {
-            if $mine == $c-asked {
-                my %n = scales($signal, $noise, $seed, $cname, $which);
-                $c-img.set('src', %n<image>);
-                $c-top.text = %n<top>;
-                $c-bottom.text = %n<bottom>;
-                $c-re.set('d', %n<psi-re>);
-                $c-im.set('d', %n<psi-im>);
-                $c-about.text = %n<about>;
-                $c-support.text = %n<support>;
-                $c-busy.text = '';
-            }
-        }
+        my %n = scales($signal, $noise, $seed, $cname, $which);
+        return unless $mine == $c-asked;
+        $c-img.set('src', %n<image>);
+        $c-top.text = %n<top>;
+        $c-bottom.text = %n<bottom>;
+        $c-re.set('d', %n<psi-re>);
+        $c-im.set('d', %n<psi-im>);
+        $c-about.text = %n<about>;
+        $c-support.text = %n<support>;
+        $c-busy.text = '';
     }
 
     react {

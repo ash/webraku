@@ -59,9 +59,6 @@ What it draws:
 | `wavelet.raku` | both. The server runs it to render the page; `webraku build` turns it into the browser's script |
 | `Analysis.rakumod` | both. It holds the signals, the noise, the transform calls, the SVG path data, and the scalogram's bitmap |
 
-Both `transform` and `scales` are ordinary subs, so after the first render
-the page is a program running in the browser. Nothing in it is `is server`.
-
 `transform` is an ordinary sub. The server calls it to render the first
 picture, and in the browser it runs on every move of a control with no request:
 a median of 6 ms per step for db4 in the browser this was measured in, against
@@ -79,24 +76,23 @@ hyphenated attributes (`@!dec-lo` read as empty), one-letter constants (`N`
 and `H` were one variable), a sub declared in a class body, `Lock`, `.Map`,
 `cis`, and `.max(:by)` on a Range. Each is checked in Raku++'s JS gate.
 
-The scalogram, `scales`, runs in the browser too. It draws the image as a
+The scalogram is a server sub, `scales`. It answers with the image as a
 `data:` URI: a 256 × 36 BMP of 27 KB, written byte by byte in
 `Analysis.rakumod`, where as SVG it would be ten thousand rectangles. One
-takes 0.4–0.7 s in the browser, against 1–2.7 s on the Raku++ server, so it
-is redone only when the signal, the seed or the continuous wavelet changes,
-and the noise slider redoes it only when let go. The DWT sliders never touch
-it. Because the work blocks the page while it runs, it waits for
-`after(0.02)`: the event turn ends, "computing…" is drawn, and the result is
-drawn when the work is done.
+answer takes 1–2.7 s on Raku++, depending on the wavelet (`fbsp` is the
+slowest). The same code compiled for the browser takes 0.6 s for
+`cmor1.5-1.0` under node. Making `scales` a plain sub would move it too; it
+stays on the server for now. So it is asked for only when the signal, the seed or the
+continuous wavelet changes, the noise slider asks only when it is let go,
+and "computing…" shows meanwhile. The DWT sliders never touch it.
 
-Nothing is `is server` any more. Once the page and its script have loaded,
-the browser asks the server for nothing. The server renders the first
-picture, so the page arrives drawn and shows a complete picture with
-JavaScript switched off. The browser then computes the same `transform` and
-`scales` the server did, and adopts the nodes the server sent. The cost is
-paid twice: the server renders in about 2.3 s, and hydrating the page
-spends about half a second on the scalogram again.
+The first render needs no request. The page arrives already drawn, the
+server's call to `scales` is in the page's replay log, and the browser
+computes the same `transform` the server did. With JavaScript switched off
+it shows a complete picture. The scalogram makes that first render take
+about a second longer.
 
-If a second change arrives before the deferred scalogram starts, the first
-one is moot. Each request takes a number, and one that is no longer the
-latest is skipped.
+The scalogram can have two requests in flight, if the noise slider is let go
+twice in quick succession, and their answers can come back out of order.
+Each request takes a number, and an answer that is not for the latest
+request is dropped.
