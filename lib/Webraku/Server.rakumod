@@ -138,25 +138,27 @@ sub document(Str $title, Str $body-html, Str $replay, Str :$css = '' --> Str) is
 #
 # While a page renders, every `is server` call is recorded. The browser replays
 # the log instead of making the same calls again, so the first client render
-# matches the server's without a round trip. Recording is per-render, and the
-# server is one-thread-per-connection, so the log is a dynamic variable.
-
-my $LOG;   # the Array being filled by the render in progress, or Nil
+# matches the server's without a round trip.
+#
+# The log is a dynamic variable, declared by the render that fills it. It used
+# to be one variable for the whole server, and the server answers each
+# connection on a thread of its own: two pages rendering at once then emptied
+# each other's log, and a page whose `is server` calls took a second lost its
+# log to any request that arrived in that second. An RPC call from the browser
+# runs outside any render, sees no log, and records nothing.
 
 #| Call an `is server` sub and record it. The server calls its subs through
 #| here; the browser's stub reads the recording.
 sub record-call(Str $name, @args, \result) is export {
-    $LOG.push: %( :$name, :args(@args.Array), result => result ) if $LOG.defined;
+    my $log = $*WEBRAKU-LOG // Nil;
+    $log.push: %( :$name, :args(@args.Array), result => result ) if $log ~~ Array;
     result;
 }
-
-sub start-log()  { $LOG = []; }
-sub finish-log(--> Str) { my $j = to-json($LOG // []); $LOG = Nil; $j }
 
 # ---------- rendering a page ----------
 
 sub render-page(Route $r, %params, Request $req --> Str) {
-    start-log();
+    my $*WEBRAKU-LOG = [];
     my $root = Element.new(tag => 'div', attrs => { id => 'webraku-root' });
     {
         my $*WEBRAKU-REQUEST = $req;
@@ -164,7 +166,7 @@ sub render-page(Route $r, %params, Request $req --> Str) {
         my @args = $r.param-names.map({ %params{$_} });
         with-parent($root, { $r.body.(|@args) });
     }
-    my $replay = finish-log();
+    my $replay = to-json($*WEBRAKU-LOG);
     document($r.title, $root.html, $replay, css => webraku-css());
 }
 

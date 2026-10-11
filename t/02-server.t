@@ -41,6 +41,7 @@ page '/post/:id',    :title('Post'), -> $id { h1 "post $id" }
 api  '/api/sum/:a/:b',               -> $a, $b { %( sum => $a.Int + $b.Int ) }
 
 sub double(Int $x) is server { $x * 2 }
+sub slow-double(Int $x) is server { sleep .4; $x * 2 }
 
 {
     my ($status, $type, $body) = handle('GET', '/', {}, '');
@@ -83,6 +84,19 @@ sub double(Int $x) is server { $x * 2 }
     is-it @entries[0]<name>,  'double',        'under its own name';
     is-it @entries[0]<args>.join(','), '21',   'with its arguments';
     is-it @entries[0]<result>.Str, '42',       'and its answer, for the browser to replay';
+}
+
+{
+    # Two pages at once. The log used to be one variable for the whole server,
+    # and the second render emptied the first one's while it was still running.
+    page '/slow', :title('Slow'), { p ~slow-double(4) }
+    page '/plain', :title('Plain'), { p 'nothing to record' }
+    my $slow = start { handle('GET', '/slow', {}, '') };
+    sleep .1;
+    handle('GET', '/plain', {}, '');
+    my ($status, $type, $body) = await $slow;
+    my $log = ($body ~~ / 'id="webraku-replay" type="application/json">' (<-[<]>*) /)[0].Str;
+    is-it from-json($log).elems.Str, '1', 'a render keeps its log while another page renders';
 }
 
 # ---------- the RPC endpoint ----------
