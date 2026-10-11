@@ -1,15 +1,18 @@
 # Webraku
 
+A full-stack web framework for Raku: server-rendered pages that come alive in
+the browser, written in Raku alone, with no JavaScript.
+
+> Version 0.0.1. **This is a work in progress**: everything below runs and is
+> tested, but the interface is still moving and may change between versions
+> without notice. What it leaves out is under Scope.
+
 One Raku program, on the server and in the browser. A page is a Raku block:
 Raku++ runs it on the server to answer a request with finished HTML, and
 `rakupp --target=js` turns the same file into the script the browser runs,
 where the page is hydrated and its `react` block comes alive. A sub marked
 `is server` keeps its body on the server, and the browser calls it over HTTP
 without the author writing a request.
-
-> Version 0.0.1. **This is a work in progress**: everything below runs and is
-> tested, but the interface is still moving and may change between versions
-> without notice. What it leaves out is under Scope.
 
 ```raku
 use Webraku;
