@@ -143,12 +143,33 @@ class Element is export {
 
 # ---------- the builder stack ----------
 
+#
+# …in the browser. On a server, where `start` threads build pages at once, one
+# stack for the module meant two renders pushed and popped each other's
+# parents: elements landed in the other page's tree, and a page could come out
+# with another's content or a value of the wrong type. There, each outermost
+# build opens a stack of its own, `@*WEBRAKU-PARENTS`, which every builder
+# under it finds; a dynamic lookup costs ~45 ns a call against ~900 for a
+# table keyed by thread. The browser has one thread and keeps `@STACK`.
 my @STACK;
+
+#| The open parents of the build this call belongs to.
+sub parents() {
+    return @STACK if $IN-BROWSER;
+    my $s := @*WEBRAKU-PARENTS;
+    $s ~~ Positional ?? $s !! @STACK;
+}
 
 #| Open `$el` as the parent for the duration of `&body`. Every framework entry
 #| point that builds a subtree goes through here, so a body that dies cannot
 #| leave the stack unbalanced.
 sub with-parent(Element $el, &body) is export {
+    # The outermost build on a server thread: give it a stack of its own.
+    if !$IN-BROWSER && @*WEBRAKU-PARENTS !~~ Positional {
+        my @*WEBRAKU-PARENTS;
+        return with-parent($el, &body);
+    }
+    my @STACK := parents();
     @STACK.push: $el;
     SCOPE-IN($el);
     # In the browser a page that calls an `is server` sub is ASYNC: `body()`
@@ -185,7 +206,7 @@ my &SCOPE-OUT = -> Element $ { };
 sub webraku-scope-hook(&in, &out) is export { &SCOPE-IN = &in; &SCOPE-OUT = &out }
 
 #| The element a builder would append to, or Nil at the top of a page.
-sub current-parent() is export { @STACK ?? @STACK[*-1] !! Element }
+sub current-parent() is export { my @s := parents(); @s ?? @s[*-1] !! Element }
 
 # Webraku::Client replaces this so a builder also makes (or adopts) a DOM node.
 # On the server it stays the identity.
