@@ -28,6 +28,8 @@ class Request is export {
     has %.headers;
     has %.params;           # the named segments of the matched route
     has Str $.body = '';
+    #| The body as it arrived, bytes and all: what a file upload is read from.
+    method raw(--> Blob) { $*WEBRAKU-RAW-BODY // $!body.encode('utf8-c8') }
     method header(Str $n) { %!headers{$n.lc} }
     method cookie(Str $n) {
         my $c = self.header('cookie') // return Str;
@@ -392,22 +394,31 @@ sub handle(Str $method, Str $target, %headers, Str $body --> List) is export {
     (200, %MIME<html>, $html, ());
 }
 
-sub read-request($conn --> Str) {
-    my $buf = '';
-    while $buf !~~ / "\r\n\r\n" | "\n\n" / {
+#| Read the head of a request, and the body after it, as BYTES: a body is only
+#| text when its type says so, and an uploaded image decoded chunk by chunk
+#| is an image no longer. Answers (head text, body bytes).
+sub read-request($conn) {
+    my $buf = Buf.new;
+    my $end;
+    loop {
+        # The head ends at the first blank line; latin-1 maps byte to char one
+        # for one, so a position in the string is a position in the bytes.
+        my $text = $buf.decode('latin-1');
+        with $text.index("\r\n\r\n") { $end = ($_, 4); last }
+        with $text.index("\n\n")       { $end = ($_, 2); last }
+        last if $buf.bytes > 1_000_000;
         my $chunk = $conn.recv(:bin) // last;
         last unless $chunk.bytes;
-        $buf ~= $chunk.decode('utf8-c8');
-        last if $buf.chars > 1_000_000;
+        $buf.append: $chunk;
     }
-    $buf;
+    return ('', Buf.new) unless $end;
+    ($buf.subbuf(0, $end[0]).decode('utf8-c8'), Buf.new($buf.subbuf($end[0] + $end[1])));
 }
 
 sub serve-one($conn, Bool :$log = True) is export {
-    my $raw = read-request($conn);
-    return unless $raw.chars;
-    my ($head, $body) = $raw.split(/ "\r\n\r\n" | "\n\n" /, 2);
-    my @lines = $head.lines;
+    my ($head-text, $body-bytes) = read-request($conn);
+    return unless $head-text.chars;
+    my @lines = $head-text.lines;
     my ($method, $target) = (@lines[0] // '').split(/\s+/);
     return unless $method && $target;
     my %headers;
@@ -416,14 +427,15 @@ sub serve-one($conn, Bool :$log = True) is export {
         %headers{$k.lc.trim} = ($v // '').trim if $v.defined;
     }
     # A body longer than the first packet needs the rest of it.
-    $body //= '';
     my $len = (%headers<content-length> // 0).Int;
-    while $body.encode('utf8-c8').bytes < $len {
+    $len = 64_000_000 if $len > 64_000_000;
+    while $body-bytes.bytes < $len {
         my $chunk = $conn.recv(:bin) // last;
         last unless $chunk.bytes;
-        $body ~= $chunk.decode('utf8-c8');
+        $body-bytes.append: $chunk;
     }
-
+    my $body = $body-bytes.decode('utf8-c8');
+    my $*WEBRAKU-RAW-BODY = $body-bytes;
     my ($status, $type, $text, $extra) = handle($method, $target, %headers, $body);
     my $bytes = $text ~~ Blob ?? $text !! $text.Str.encode('utf8-c8');
     my @extra = ($extra // ()).list;
@@ -442,8 +454,12 @@ sub serve-one($conn, Bool :$log = True) is export {
 
 #| Start the server. `$client-js` is the transpiled bundle, served at
 #| /_webraku/client.js and referenced by every page.
+#|
+#| `:workers` bounds how many requests are answered at once: that many threads
+#| take connections from a queue. The default, 0, answers each connection on a
+#| thread of its own.
 sub serve(Int :$port is copy = 8080, Str :$host = '127.0.0.1', Str :$client-js is copy = '',
-          Bool :$dev is copy = False, Bool :$log = True) is export {
+          Bool :$dev is copy = False, Bool :$log = True, Int :$workers = 0) is export {
     # `webraku run` builds the bundle and names it here, so that the program
     # itself carries no build concern: an application's last line is `serve;`
     # whether it was started by the tool or by hand.
@@ -457,6 +473,19 @@ sub serve(Int :$port is copy = 8080, Str :$host = '127.0.0.1', Str :$client-js i
     my $listener = IO::Socket::INET.new(:localhost($host), :localport($port), :listen);
     note "webraku: http://$host:$port/" ~ ($dev ?? '  (dev: the page reloads when the program changes)' !! '');
     note "webraku: {@ROUTES.elems} routes, {%RPC.elems} server subs, client bundle {$client-js.chars} chars";
+    if $workers > 0 {
+        my $queue = Channel.new;
+        for ^$workers {
+            start {
+                loop {
+                    my $conn = $queue.receive;
+                    my $r = try serve-one($conn, :$log);
+                    note "webraku: $!" if $!;
+                }
+            }
+        }
+        loop { $queue.send: $listener.accept }
+    }
     loop {
         my $conn = $listener.accept;
         start {
