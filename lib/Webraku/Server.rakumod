@@ -10,6 +10,9 @@
 #   api    — the block's return value, as JSON.
 #   rpc    — one `is server` sub, called with the arguments the browser sent.
 #   static — a file from a directory.
+#   route  — whatever the block returns: a Response, a whole document built
+#            with the builders, or a string of HTML. No shell, no client
+#            script: the block owns the response.
 unit module Webraku::Server;
 
 use Webraku::HTML;
@@ -34,16 +37,73 @@ class Request is export {
         }
         Str;
     }
+    #| Every cookie the request carries.
+    method cookies(--> Hash) {
+        my %c;
+        for (self.header('cookie') // '').split(';') -> $pair {
+            my ($k, $v) = $pair.trim.split('=', 2);
+            %c{$k} = $v // '' if $k;
+        }
+        %c;
+    }
+    method host(--> Str) { (self.header('host') // '').subst(/':' \d+ $/, '') }
+    #| The fields of a form POSTed as `application/x-www-form-urlencoded`. A
+    #| name that comes more than once (`tag=a&tag=b`) keeps every value, in an
+    #| Array; any other name maps to its one Str.
+    method form(--> Hash) {
+        my %f;
+        return %f unless (self.header('content-type') // '').starts-with('application/x-www-form-urlencoded');
+        for $!body.split('&').grep(*.chars) -> $pair {
+            my ($k, $v) = $pair.split('=', 2);
+            $k = url-decode($k);
+            $v = url-decode($v // '');
+            if %f{$k}:exists {
+                %f{$k} = [|(%f{$k} ~~ Array ?? %f{$k}.list !! %f{$k}), $v];
+            }
+            else { %f{$k} = $v }
+        }
+        %f;
+    }
 }
+
+#| What a handler answers with when the default — 200, HTML, no headers — is
+#| not what it means: a redirect, a 404 with a page, a feed, a file, a cookie.
+#| `body` is a Str (sent as UTF-8) or a Blob (sent as it is). `headers` is a
+#| list of pairs rather than a hash, so that two `Set-Cookie`s can both go out.
+class Response is export {
+    has Int $.status = 200;
+    has Str $.type = 'text/html; charset=utf-8';
+    has $.body = '';
+    has @.headers;
+}
+
+#| `response 'text', :type<text/plain>`, `response $html, :status(404)`.
+sub response($body = '', Int :$status = 200, Str :$type = 'text/html; charset=utf-8', :@headers --> Response) is export {
+    Response.new(:$status, :$type, :$body, :@headers);
+}
+
+#| A redirect to `$to`. 302 by default; a permanent move is `:status(301)`.
+sub redirect(Str $to, Int :$status = 302, :@headers --> Response) is export {
+    Response.new(:$status, type => 'text/html; charset=utf-8',
+                 body => '<a href="' ~ escape-attr($to) ~ '">moved</a>',
+                 headers => (Location => $to, |@headers));
+}
+
 
 #| The request being served, inside a page or api block.
 our $REQUEST is export = Request;
+
+#| The request being served, from anywhere inside a handler. Each connection is
+#| answered on a thread of its own, so this reads the dynamic variable the
+#| render declared rather than the one global.
+sub request(--> Request) is export { $*WEBRAKU-REQUEST // $REQUEST }
 
 # ---------- the route table ----------
 
 my @ROUTES;
 my %RPC;                    # name => the `is server` sub
 my @STATIC;                 # (url-prefix, directory)
+my &FALLBACK;               # answers what no route matches
 my $CLIENT-JS = '';         # the bundle, set by `serve`
 my $DEV = False;
 my $VERSION = ~now.Int;     # the dev watcher's reload token
@@ -58,6 +118,21 @@ sub page(Str $pattern, &body, Str :$title = 'Webraku') is export {
 sub api(Str $pattern, &body) is export {
     @ROUTES.push: Route.new(kind => 'api', :$pattern, segments => split-path($pattern), :&body, title => '');
 }
+
+#| Register a handler that owns its response. The block gets the route's
+#| parameters, as a page's does, and returns a `Response`, an `Element` (a
+#| whole document, when it is `html`), or a Str of HTML. `:methods` limits it,
+#| as in `route '/login', :methods<POST>, { … }`.
+sub route(Str $pattern, &body, :$methods --> Route) is export {
+    my $r = Route.new(kind => 'route', :$pattern, segments => split-path($pattern), :&body,
+                      title => '', methods => ($methods // ()).list.map(*.uc).Array);
+    @ROUTES.push: $r;
+    $r;
+}
+
+#| What to answer when no route matches. The block gets the path, and its
+#| answer is treated as a `route`'s is; a bare Str or Element goes out as 404.
+sub fallback(&body) is export { &FALLBACK = &body }
 
 #| Serve files under `$dir` at the URL prefix `$prefix`.
 sub static(Str $prefix, Str $dir) is export { @STATIC.push: ($prefix, $dir) }
@@ -176,14 +251,46 @@ sub webraku-css(--> Str) { $CSS }
 
 # ---------- HTTP ----------
 
-my %REASON = 200 => 'OK', 204 => 'No Content', 302 => 'Found', 400 => 'Bad Request',
-             404 => 'Not Found', 405 => 'Method Not Allowed', 500 => 'Internal Server Error';
+my %REASON = 200 => 'OK', 204 => 'No Content', 301 => 'Moved Permanently', 302 => 'Found',
+             303 => 'See Other', 304 => 'Not Modified', 400 => 'Bad Request', 401 => 'Unauthorized',
+             403 => 'Forbidden', 404 => 'Not Found', 405 => 'Method Not Allowed',
+             410 => 'Gone', 500 => 'Internal Server Error';
 
 my %MIME = html => 'text/html; charset=utf-8', js => 'text/javascript; charset=utf-8',
            css => 'text/css; charset=utf-8', json => 'application/json; charset=utf-8',
            svg => 'image/svg+xml', png => 'image/png', jpg => 'image/jpeg',
            gif => 'image/gif', ico => 'image/x-icon', txt => 'text/plain; charset=utf-8',
-           woff2 => 'font/woff2', map => 'application/json';
+           woff2 => 'font/woff2', map => 'application/json',
+           jpeg => 'image/jpeg', webp => 'image/webp', svgz => 'image/svg+xml',
+           bmp => 'image/bmp', tif => 'image/tiff', tiff => 'image/tiff',
+           woff => 'font/woff', ttf => 'font/ttf', otf => 'font/otf', eot => 'application/vnd.ms-fontobject',
+           pdf => 'application/pdf', zip => 'application/zip', gz => 'application/gzip',
+           xml => 'application/xml; charset=utf-8', rss => 'application/rss+xml; charset=utf-8',
+           mp3 => 'audio/mpeg', ogg => 'audio/ogg', wav => 'audio/wav', m4a => 'audio/mp4',
+           mp4 => 'video/mp4', webm => 'video/webm', mov => 'video/quicktime',
+           doc => 'application/msword', ppt => 'application/vnd.ms-powerpoint',
+           xls => 'application/vnd.ms-excel', csv => 'text/csv; charset=utf-8',
+           md => 'text/plain; charset=utf-8', raku => 'text/plain; charset=utf-8',
+           pl => 'text/plain; charset=utf-8', py => 'text/plain; charset=utf-8';
+
+#| The MIME type for a file name, by its extension.
+sub mime-type(Str $name --> Str) is export {
+    %MIME{$name.IO.extension.lc} // 'application/octet-stream';
+}
+
+#| What a `route` or `fallback` block returned, as (status, type, body, headers).
+sub answer($out, Int :$status = 200 --> List) {
+    given $out {
+        when Response { return (.status, .type, .body, .headers.List) }
+        when Element  {
+            my $html = .html;
+            $html = "<!DOCTYPE html>\n" ~ $html if .tag eq 'html';
+            return ($status, %MIME<html>, $html, ());
+        }
+        when Raw      { return ($status, %MIME<html>, .html, ()) }
+        default       { return ($status, %MIME<html>, ($_ // '').Str, ()) }
+    }
+}
 
 sub url-decode(Str $s is copy --> Str) {
     $s = $s.subst('+', ' ', :g);
@@ -202,10 +309,15 @@ sub parse-query(Str $qs --> Hash) {
 
 #| Answer one request. A pure function of the request and the route table: it
 #| touches no socket, so what the server answers can be tested with no port.
+#|
+#| The answer is (status, type, body, headers): the body is a Str or, for a
+#| file, a Blob, and the headers are a list of pairs beyond the two every
+#| response carries.
 sub handle(Str $method, Str $target, %headers, Str $body --> List) is export {
     my ($path, $qs) = $target.split('?', 2);
     my %query = parse-query($qs // '');
     my $req = Request.new(:$method, :$path, :%query, :%headers, :$body);
+    my $*WEBRAKU-REQUEST = $req;
 
     return (200, 'text/plain; charset=utf-8', $VERSION) if $path eq '/_webraku/version';
     return (200, %MIME<js>, $CLIENT-JS)                 if $path eq '/_webraku/client.js';
@@ -225,37 +337,59 @@ sub handle(Str $method, Str $target, %headers, Str $body --> List) is export {
         return (200, %MIME<json>, to-json(%( :$result )));
     }
 
+    # A file is read as bytes: an image slurped as text is an image no longer.
+    # The path is decoded first, so a file whose name is not ASCII is found.
     for @STATIC -> ($prefix, $dir) {
         next unless $path.starts-with($prefix);
-        my $rel = $path.substr($prefix.chars).subst(/^ '/' /, '');
-        return (403, %MIME<txt>, 'no') if $rel.contains('..');
+        my $rel = split-path($path.substr($prefix.chars)).map(&url-decode-segment).join('/');
+        return (403, %MIME<txt>, 'no', ()) if $rel.split('/').grep('..') || $rel.contains("\0");
         my $file = $dir.IO.add($rel);
         next unless $file.f;
-        return (200, %MIME{$file.extension} // 'application/octet-stream', $file.slurp);
+        return (200, mime-type($file.basename), $file.slurp(:bin),
+                ('Cache-Control' => 'public, max-age=86400',));
     }
 
     my ($route, %params) = match-route(@ROUTES, $path);
     without $route {
+        if &FALLBACK {
+            my $out = try FALLBACK($path);
+            return (500, %MIME<html>, document('Error', '<h1>500</h1><pre>' ~ escape-html(~$!) ~ '</pre>', '[]'), ()) if $!;
+            return answer($out, status => 404);
+        }
         return (404, %MIME<html>, document('Not found',
-            '<h1>404</h1><p>' ~ escape-html($path) ~ ' is not a route this program declares.</p>', '[]'));
+            '<h1>404</h1><p>' ~ escape-html($path) ~ ' is not a route this program declares.</p>', '[]'), ());
     }
-    return (405, %MIME<txt>, 'method not allowed') unless $method eq 'GET' | 'POST' | 'HEAD';
+    return (405, %MIME<txt>, 'method not allowed', ()) unless $method eq 'GET' | 'POST' | 'HEAD';
 
     $req.params = %params;
+    if $route.kind eq 'route' {
+        return (405, %MIME<txt>, 'method not allowed', ())
+            if $route.methods && $method ne any($route.methods) && !($method eq 'HEAD' && 'GET' eq any($route.methods));
+        my @args = $route.param-names.map({ %params{$_} });
+        $REQUEST = $req;
+        my $out = try $route.body.(|@args);
+        if $! {
+            my $why = $!.message ~ "\n" ~ ($!.backtrace.Str // '');
+            note "webraku: $method $target: {$!.message}";
+            return (500, %MIME<html>, document('Error', '<h1>500</h1><pre>' ~ escape-html($why) ~ '</pre>', '[]'), ());
+        }
+        return answer($out);
+    }
     if $route.kind eq 'api' {
         my @args = $route.param-names.map({ %params{$_} });
         $REQUEST = $req;
         my $out = try $route.body.(|@args);
-        return (500, %MIME<json>, to-json(%( error => ~$! ))) if $!;
-        return (200, %MIME<json>, to-json($out));
+        return (500, %MIME<json>, to-json(%( error => ~$! )), ()) if $!;
+        return answer($out) if $out ~~ Response;
+        return (200, %MIME<json>, to-json($out), ());
     }
     my $html = try render-page($route, %params, $req);
     if $! {
         my $why = ~$!;
         return (500, %MIME<html>, document('Error',
-            '<h1>500</h1><pre>' ~ escape-html($why) ~ '</pre>', '[]')) ;
+            '<h1>500</h1><pre>' ~ escape-html($why) ~ '</pre>', '[]'), ()) ;
     }
-    (200, %MIME<html>, $html);
+    (200, %MIME<html>, $html, ());
 }
 
 sub read-request($conn --> Str) {
@@ -290,16 +424,19 @@ sub serve-one($conn, Bool :$log = True) is export {
         $body ~= $chunk.decode('utf8-c8');
     }
 
-    my ($status, $type, $text) = handle($method, $target, %headers, $body);
-    my $bytes = $text.encode('utf8-c8');
+    my ($status, $type, $text, $extra) = handle($method, $target, %headers, $body);
+    my $bytes = $text ~~ Blob ?? $text !! $text.Str.encode('utf8-c8');
+    my @extra = ($extra // ()).list;
     note sprintf('  %d %-4s %s', $status, $method, $target) if $log;
-    $conn.write: (
-        "HTTP/1.1 $status {%REASON{$status} // 'OK'}\r\n" ~
+    my $head = "HTTP/1.1 $status {%REASON{$status} // 'OK'}\r\n" ~
         "Content-Type: $type\r\n" ~
-        "Content-Length: {$bytes.bytes}\r\n" ~
-        "Cache-Control: no-store\r\n" ~
-        "Connection: close\r\n\r\n"
-    ).encode('utf8-c8') ~ ($method eq 'HEAD' ?? ''.encode !! $bytes);
+        "Content-Length: {$bytes.bytes}\r\n";
+    $head ~= "Cache-Control: no-store\r\n" unless @extra.first(*.key.lc eq 'cache-control');
+    # A header value is one line: a stray CR or LF in it would start a header
+    # the handler never wrote.
+    $head ~= "{.key}: {.value.Str.subst(/<[\r\n]>/, '', :g)}\r\n" for @extra;
+    $head ~= "Connection: close\r\n\r\n";
+    $conn.write: $head.encode('utf8-c8') ~ ($method eq 'HEAD' ?? Blob.new !! $bytes);
     $conn.close;
 }
 
