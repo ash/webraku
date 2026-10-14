@@ -131,6 +131,31 @@ browser's code calls something it exports, which is what remains once the
 `is server` bodies are stubbed. A module that only `is server` code calls
 stays on the server, along with everything it uses.
 
+## Handlers that own their response
+
+A `page` is a document Webraku wraps and hydrates. A `route` is a handler
+whose return value IS the response — for the pages that are not that shape:
+a redirect, a feed, a 404 with a body, a whole document written with the
+builders, a file.
+
+```raku
+route '/old', { redirect '/new', :status(301) }
+route '/feed', { response $xml, :type<application/rss+xml> }
+route '/doc', { html { head { title 'Doc' }; body :class<home>, { h1 'hi' } } }
+route '/category/*path', -> $path { … }        # a splat: the rest of the path
+route '/login', :methods<POST>, { my %f = request.form; … }
+fallback -> $path { response "nothing at $path", :status(404) }
+```
+
+`response($body, :status, :type, :headers)` and `redirect($to, :status)`
+build a `Response`; a page or an `api` block may return one too. `request()`
+is the request being served, on any thread, with `.form`, `.cookies`,
+`.host` and `.raw` (the body's bytes, for uploads). Path segments arrive
+percent-decoded, so `/tag/%D0%BA%D0%BE%D1%82` matches `/tag/:slug` with
+`кот`. `static` serves files as bytes and directories by their `index.html`.
+`serve :workers(N)` answers N requests at a time from a queue, rather than
+one thread per connection.
+
 ## The command
 
 | | |
@@ -200,7 +225,7 @@ Left out of 0.0.1, each a later piece of work if wanted:
 | a markup slang | the builders are the HTML; there is no JSX-like syntax over them |
 | streaming render, partial hydration, islands | a page renders whole and hydrates whole |
 | WebSocket-backed Supplies | the browser reaches the server only through `is server` calls |
-| nested layouts, middleware | one `page` block per route |
+| nested layouts, middleware | one `page` block per route; a `route` can share a builder sub |
 | sessions, authentication, forms validation | |
 | HTTP/2, TLS | put it behind a proxy that terminates TLS |
 
