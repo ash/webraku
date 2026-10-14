@@ -26,25 +26,56 @@ sub split-path(Str $path --> List) is export { $path.split('/').grep(*.chars).Li
 
 #| `%D0%BA` back into `к`. A path is matched segment by segment AFTER it is
 #| split, so an encoded `/` (`%2F`) stays inside its segment and cannot invent
-#| a route. Malformed UTF-8 is left as it came.
+#| a route. This module is the browser's too, and the JavaScript target has no
+#| Blob, so the UTF-8 is decoded by hand; a sequence that is not UTF-8 is left
+#| as it came.
 sub url-decode-segment(Str $s --> Str) is export {
     return $s unless $s.contains('%');
-    my @bytes;
+    my $out = '';
     my $i = 0;
     my $n = $s.chars;
     while $i < $n {
         my $c = $s.substr($i, 1);
-        if $c eq '%' && $i + 2 < $n && $s.substr($i + 1, 2) ~~ /^ <[0..9A..Fa..f]> ** 2 $/ {
-            @bytes.push: :16($s.substr($i + 1, 2));
-            $i += 3;
-        }
-        else {
-            @bytes.append: $c.encode('utf8').list;
+        unless $c eq '%' && $i + 2 < $n + 1 && $s.substr($i + 1, 2) ~~ /^ <[0..9A..Fa..f]> ** 2 $/ {
+            $out ~= $c;
             $i++;
+            next;
         }
+        # A run of %XX octets, decoded as one UTF-8 sequence.
+        my @b;
+        my $j = $i;
+        while $j + 2 < $n + 1 && $s.substr($j, 1) eq '%' && $s.substr($j + 1, 2) ~~ /^ <[0..9A..Fa..f]> ** 2 $/ {
+            @b.push: :16($s.substr($j + 1, 2));
+            $j += 3;
+        }
+        my $text = utf8-octets(@b);
+        $out ~= $text // $s.substr($i, $j - $i);
+        $i = $j;
     }
-    my $out = try Blob.new(@bytes).decode('utf8');
-    $out // $s;
+    $out;
+}
+
+#| Octets as UTF-8 text, or Str when they are not UTF-8.
+sub utf8-octets(@b --> Str) {
+    my $out = '';
+    my $k = 0;
+    while $k < @b {
+        my $x = @b[$k];
+        my ($len, $cp) = $x < 0x80 ?? (1, $x)
+                      !! $x +& 0xE0 == 0xC0 ?? (2, $x +& 0x1F)
+                      !! $x +& 0xF0 == 0xE0 ?? (3, $x +& 0x0F)
+                      !! $x +& 0xF8 == 0xF0 ?? (4, $x +& 0x07)
+                      !! (0, 0);
+        return Str if $len == 0 || $k + $len > @b;
+        for 1 ..^ $len -> $m {
+            my $y = @b[$k + $m];
+            return Str unless $y +& 0xC0 == 0x80;
+            $cp = ($cp +< 6) +| ($y +& 0x3F);
+        }
+        $out ~= chr($cp);
+        $k += $len;
+    }
+    $out;
 }
 
 #| Match `$path` against `@routes`. Answers (route, params) or (Nil, {}).

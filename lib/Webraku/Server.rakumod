@@ -346,6 +346,14 @@ sub handle(Str $method, Str $target, %headers, Str $body --> List) is export {
         my $rel = split-path($path.substr($prefix.chars)).map(&url-decode-segment).join('/');
         return (403, %MIME<txt>, 'no', ()) if $rel.split('/').grep('..') || $rel.contains("\0");
         my $file = $dir.IO.add($rel);
+        # A directory answers with its index.html, as a web server's would; and
+        # without its trailing slash it is redirected to it, or the page's
+        # relative links would resolve one level too high.
+        if $file.d && $file.add('index.html').f {
+            return (301, %MIME<html>, '', ('Location' => $path ~ '/' ~ ($qs ?? "?$qs" !! ''),))
+                unless $path.ends-with('/');
+            $file = $file.add('index.html');
+        }
         next unless $file.f;
         return (200, mime-type($file.basename), $file.slurp(:bin),
                 ('Cache-Control' => 'public, max-age=86400',));
@@ -399,20 +407,24 @@ sub handle(Str $method, Str $target, %headers, Str $body --> List) is export {
 #| is an image no longer. Answers (head text, body bytes).
 sub read-request($conn) {
     my $buf = Buf.new;
-    my $end;
     loop {
-        # The head ends at the first blank line; latin-1 maps byte to char one
-        # for one, so a position in the string is a position in the bytes.
+        # latin-1 maps each byte to one character and back, but "\r\n" is ONE
+        # character in a Raku string, so a position in the text is not a
+        # position in the bytes: the split is done in the text and each half
+        # encoded back.
         my $text = $buf.decode('latin-1');
-        with $text.index("\r\n\r\n") { $end = ($_, 4); last }
-        with $text.index("\n\n")       { $end = ($_, 2); last }
+        for "\r\n\r\n", "\n\n" -> $sep {
+            with $text.index($sep) -> $i {
+                return ($text.substr(0, $i).encode('latin-1').decode('utf8-c8'),
+                        Buf.new($text.substr($i + $sep.chars).encode('latin-1')));
+            }
+        }
         last if $buf.bytes > 1_000_000;
         my $chunk = $conn.recv(:bin) // last;
         last unless $chunk.bytes;
         $buf.append: $chunk;
     }
-    return ('', Buf.new) unless $end;
-    ($buf.subbuf(0, $end[0]).decode('utf8-c8'), Buf.new($buf.subbuf($end[0] + $end[1])));
+    ('', Buf.new);
 }
 
 sub serve-one($conn, Bool :$log = True) is export {

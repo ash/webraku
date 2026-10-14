@@ -87,6 +87,14 @@ fallback -> $path { response "nothing at $path", :status(404) }
     is-it $body.list.join(','), '0,255,128,10,13,0', 'every one of them';
     ($status, $type, $body) = handle('GET', '/files/../x', {}, '');
     is-it $status.Str, '403', 'a path out of the directory is refused';
+    $dir.add('book').mkdir;
+    $dir.add('book/index.html').spurt('<h1>book</h1>');
+    ($status, $type, $body, $headers) = handle('GET', '/files/book', {}, '');
+    is-it $status.Str, '301', 'a directory without its slash is redirected to it';
+    is-it $headers.first(*.key eq 'Location').value, '/files/book/', 'with the slash';
+    ($status, $type, $body) = handle('GET', '/files/book/', {}, '');
+    is-it $body.decode, '<h1>book</h1>', 'and with it, answers with its index.html';
+    $dir.add('book/index.html').unlink; $dir.add('book').rmdir;
     $dir.add('сова.bin').unlink; $dir.rmdir;
 }
 
