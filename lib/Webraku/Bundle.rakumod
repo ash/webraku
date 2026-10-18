@@ -27,11 +27,12 @@ unit module Webraku::Bundle;
 #| that only `is server` code calls is the server's alone, and its source —
 #| and whatever IT uses — stays out of the browser.
 sub strip-uses(Str $src, IO::Path :$beside, Str :$client = '' --> Str) is export {
+    my $code = $beside ?? code-only($client) !! '';
     $src.lines.map(-> $line {
         $line ~~ / ^ \s* 'unit' \s+ 'module' \s /                      ?? ''
      !! $line ~~ / ^ \s* 'use' \s+ 'lib' /                             ?? ''
      !! $line ~~ / ^ \s* 'use' \s+ 'Webraku' [ '::' \w+ ]? \s* ';' /   ?? ''
-     !! ($beside && server-only($line, $beside, $client))              ?? ''
+     !! ($beside && server-only($line, $beside, $code))                ?? ''
      !! $line;
     }).join("\n");
 }
@@ -62,8 +63,76 @@ sub module-exports(IO::Path $file --> List) is export {
     $file.slurp.match(:g, / 'sub' \s+ (<[\w\-]>+) <-[{;]>*? 'is' \s+ 'export' /).map(*[0].Str).List
 }
 
+#| The source with its comments and the text of its quoted strings blanked
+#| out, so that a name mentioned in prose — `<code>solve</code>` in a
+#| paragraph of the page — is not taken for a call. A double-quoted string
+#| keeps its `{…}` blocks and `&name` calls, which are code. A quote that does
+#| not close on its own line is left alone, and so is every other quoting
+#| construct: a mention there keeps a module in the browser, which costs size,
+#| never correctness.
+sub code-only(Str $src --> Str) is export {
+    my @c = $src.comb;
+    my $n = +@c;
+    my @out;
+    my $i = 0;
+    # where a quote that opens at $i closes, on the same line, or Nil
+    my sub close-at(Int $i, Str $q) {
+        my $j = $i + 1;
+        while $j < $n {
+            return Nil if @c[$j] eq "\n";
+            return $j if @c[$j] eq $q;
+            $j += @c[$j] eq '\\' ?? 2 !! 1;
+        }
+        Nil
+    }
+    while $i < $n {
+        my $ch = @c[$i];
+        if $ch eq '#' {
+            $i++ while $i < $n && @c[$i] ne "\n";
+            next;
+        }
+        # an apostrophe between letters is part of a name: `isn't-empty`
+        if $ch eq "'" && !($i && @c[$i - 1] ~~ /\w/ && $i + 1 < $n && @c[$i + 1] ~~ /<alpha>/) {
+            with close-at($i, "'") -> $j {
+                @out.push: "''";
+                $i = $j + 1;
+                next;
+            }
+        }
+        if $ch eq '"' {
+            with close-at($i, '"') -> $j {
+                @out.push: '"';
+                my $k = $i + 1;
+                while $k < $j {
+                    if @c[$k] eq '{' {
+                        my $d = 0;
+                        while $k < $j {
+                            $d++ if @c[$k] eq '{';
+                            $d-- if @c[$k] eq '}';
+                            @out.push: @c[$k++];
+                            last unless $d;
+                        }
+                    }
+                    elsif @c[$k] eq '&' {
+                        @out.push: @c[$k++];
+                        @out.push: @c[$k++] while $k < $j && @c[$k] ~~ /<[\w\-]>/;
+                        @out.push: ' ';
+                    }
+                    else { $k++ }
+                }
+                @out.push: '"';
+                $i = $j + 1;
+                next;
+            }
+        }
+        @out.push: $ch;
+        $i++;
+    }
+    @out.join
+}
+
 #| Whether `$line` uses a module beside the application that the browser's
-#| code never calls.
+#| code — its comments and string text left out — never calls.
 sub server-only(Str $line, IO::Path $dir, Str $client --> Bool) {
     my $file = local-module($line, $dir);
     return False without $file;
@@ -136,7 +205,9 @@ sub stub-server-subs(Str $src --> Str) is export {
         my $head = %f<head>;
         # `is server` is a trait this framework invents; the stub does not carry it.
         my $stub-head = $head.subst(/ \s* 'is' \s+ 'server' /, '');
-        my @params = signature-params($head);
+        # An array or a hash goes as ONE argument: `[@cps]` would flatten it into
+        # as many arguments as it has elements.
+        my @params = signature-params($head).map({ .starts-with('@' | '%') ?? "\$($_)" !! $_ });
         my $body = '{ await webraku-call(' ~ "'" ~ %f<name> ~ "', [" ~ @params.join(', ') ~ ']) }';
         $out = $out.substr(0, %f<head-start>.Int)
              ~ $stub-head ~ $body

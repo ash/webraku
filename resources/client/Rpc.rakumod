@@ -21,6 +21,16 @@ use Webraku::JSON;
 
 my @REPLAY;
 my %USED;
+my $BASE = '';      # the path the application is mounted under; the page says which
+
+#| A path inside this application, as the browser must ask for it. The server
+#| half's `url`, with the base read from the page the server sent.
+sub url(Str $path = '/' --> Str) is export {
+    $BASE ~ ($path.starts-with('/') ?? $path !! "/$path");
+}
+
+#| The mount point, for the route match in Webraku::Client.
+sub webraku-page-base(--> Str) is export { $BASE }
 
 # Webraku::Client installs this, to reconcile after an answer arrives.
 my &ANSWERED = -> { };
@@ -28,6 +38,8 @@ sub webraku-rpc-hook(&hook) is export { &ANSWERED = &hook }
 
 #| Read the log the server embedded. Called once, before the first render.
 sub webraku-load-replay() is export {
+    my $meta = JS.document.querySelector('meta[name="webraku-base"]');
+    $BASE = $meta.getAttribute('content').Str if $meta;
     my $tag = JS.document.getElementById('webraku-replay');
     return unless $tag;
     @REPLAY = from-json($tag<textContent> || '[]').list.Array;
@@ -50,7 +62,7 @@ sub webraku-call(Str $name, @args) is export {
         %USED{$i} = True;
         return %e<result>;
     }
-    my $res = await JS.fetch('/_rpc/' ~ $name, {
+    my $res = await JS.fetch($BASE ~ '/_rpc/' ~ $name, {
         method  => 'POST',
         headers => { 'content-type' => 'application/json' },
         body    => to-json(@args.Array),

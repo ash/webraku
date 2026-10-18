@@ -145,11 +145,19 @@ class Element is export {
 
 my @STACK;
 
+# The stack a builder appends to. On the server each render declares its own,
+# `$*WEBRAKU-STACK`: the server answers requests on parallel threads, and two
+# pages rendering at once on one shared stack built into each other — one came
+# out empty and the other with both bodies. The browser renders one page, and
+# keeps the module's. (Under `--target=js` a dynamic variable nobody declared
+# is an error rather than a soft failure, so it is not even looked up there.)
+sub webraku-stack() { $IN-BROWSER ?? @STACK !! ($*WEBRAKU-STACK // @STACK) }
+
 #| Open `$el` as the parent for the duration of `&body`. Every framework entry
 #| point that builds a subtree goes through here, so a body that dies cannot
 #| leave the stack unbalanced.
 sub with-parent(Element $el, &body) is export {
-    @STACK.push: $el;
+    webraku-stack().push: $el;
     SCOPE-IN($el);
     # In the browser a page that calls an `is server` sub is ASYNC: `body()`
     # hands back a Promise and the tree is built in a continuation. Returning
@@ -168,7 +176,7 @@ sub with-parent(Element $el, &body) is export {
     # text, and a call through a `&` variable tells it nothing.
     $r = await $r if webraku-in-browser();
     SCOPE-OUT($el);
-    @STACK.pop;
+    webraku-stack().pop;
     $r;
 }
 
@@ -185,7 +193,7 @@ my &SCOPE-OUT = -> Element $ { };
 sub webraku-scope-hook(&in, &out) is export { &SCOPE-IN = &in; &SCOPE-OUT = &out }
 
 #| The element a builder would append to, or Nil at the top of a page.
-sub current-parent() is export { @STACK ?? @STACK[*-1] !! Element }
+sub current-parent() is export { my $s = webraku-stack(); $s ?? $s[*-1] !! Element }
 
 # Webraku::Client replaces this so a builder also makes (or adopts) a DOM node.
 # On the server it stays the identity.

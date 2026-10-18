@@ -39,6 +39,12 @@ class Request is export {
 #| The request being served, inside a page or api block.
 our $REQUEST is export = Request;
 
+#| The request being served, wherever the server is running the program's
+#| code for it: a page, an api block, or an `is server` sub the browser
+#| called. Each request has its own, where `$REQUEST` is one variable that
+#| requests answered at the same time overwrite.
+sub request(--> Request) is export { $*WEBRAKU-REQUEST // $REQUEST }
+
 # ---------- the route table ----------
 
 my @ROUTES;
@@ -46,7 +52,9 @@ my %RPC;                    # name => the `is server` sub
 my @STATIC;                 # (url-prefix, directory)
 my $CLIENT-JS = '';         # the bundle, set by `serve`
 my $DEV = False;
-my $VERSION = ~now.Int;     # the dev watcher's reload token
+my $VERSION = ~now.Int;     # the dev watcher's reload token, and the bundle's cache key
+my $BASE = '';              # the path the application is mounted under, '' for the root
+my $MAX-BODY = 1_000_000;   # bytes; a longer request body is answered 413 unread
 
 #| Register a page. The path may carry named segments — `/post/:id` — which are
 #| bound to the block's parameters in order.
@@ -85,6 +93,19 @@ sub webraku-server-subs() is export { @SERVER-SUBS }
 sub every(Real $seconds --> Supply) is export { Supply.from-list() }
 sub after(Real $seconds --> Supply) is export { Supply.from-list() }
 
+#| The browser's global object, for what the builders do not cover:
+#| `window().history.replaceState(…)`, `window().navigator.clipboard.writeText($s)`.
+#| There is no browser on the server, so it answers a stand-in that takes any
+#| call and does nothing: a page body runs there only to render, and its
+#| handlers never run there at all.
+class NoWindow {
+    method FALLBACK($, |) { self }
+    method AT-KEY($)      { self }
+    method Bool(--> False) { }
+    method Str(--> '')     { }
+}
+sub window() is export { NoWindow }
+
 #| Replacing a list of children is a browser action. On the server the page is
 #| rendered once, so the block simply builds into the parent.
 sub render-list(Element $parent, &body) is export {
@@ -97,6 +118,30 @@ sub render-list(Element $parent, &body) is export {
 sub routes() is export { @ROUTES }
 sub rpc-table() is export { %RPC }
 
+# ---------- the mount point ----------
+#
+# An application can live under a path rather than at the root of its host:
+# `webraku.raku.online/sudoku/` is one program and `/wavelet/` another, each
+# behind the same proxy. The routes stay written from `/` — a program does not
+# know where it will be mounted — and the base is set from outside, by
+# `serve :base</sudoku>` or WEBRAKU_BASE. A request that arrives with the base
+# still on is answered as if it had not, so the proxy may strip it or not.
+
+sub normalize-base(Str $b --> Str) {
+    my $s = $b.trim.subst(/ '/'+ $ /, '');
+    $s && !$s.starts-with('/') ?? "/$s" !! $s;
+}
+
+#| Set the mount point. `serve` calls this; a test may call it directly.
+sub webraku-base(Str $b) is export { $BASE = normalize-base($b) }
+
+#| A path inside this application, as the browser must ask for it: `url('/char/41')`
+#| is `/char/41` at the root and `/unicode/char/41` under `/unicode`. The
+#| browser half has the same sub, reading the base the page carries.
+sub url(Str $path = '/' --> Str) is export {
+    $BASE ~ ($path.starts-with('/') ?? $path !! "/$path");
+}
+
 # ---------- the document shell ----------
 
 #| Wrap a built tree in a page. The replay log is embedded as JSON so that the
@@ -108,26 +153,30 @@ sub document(Str $title, Str $body-html, Str $replay, Str :$css = '' --> Str) is
         (function () \{
           var v = "$VERSION";
           setInterval(function () \{
-            fetch("/_webraku/version").then(function (r) \{ return r.text() \})
+            fetch("$BASE/_webraku/version").then(function (r) \{ return r.text() \})
               .then(function (t) \{ if (t.trim() !== v) location.reload() \});
           \}, 700);
         \})();
         </script>
         DEV
 
+    # The bundle's URL carries the server's start time: it is cached for good
+    # (see `handle`), and a restart, which is what a new build needs, asks for
+    # a new one.
     qq:to/HTML/;
     <!doctype html>
     <html lang="en">
     <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="webraku-base" content="{escape-html($BASE)}">
     <title>{escape-html($title)}</title>
     <style>{$css}</style>
     </head>
     <body>
     {$body-html}
     <script id="webraku-replay" type="application/json">{$replay}</script>
-    <script src="/_webraku/client.js"></script>
+    <script src="{escape-html($BASE)}/_webraku/client.js?v=$VERSION"></script>
     {$dev-script}
     </body>
     </html>
@@ -159,6 +208,7 @@ sub record-call(Str $name, @args, \result) is export {
 
 sub render-page(Route $r, %params, Request $req --> Str) {
     my $*WEBRAKU-LOG = [];
+    my $*WEBRAKU-STACK = [];
     my $root = Element.new(tag => 'div', attrs => { id => 'webraku-root' });
     {
         my $*WEBRAKU-REQUEST = $req;
@@ -177,7 +227,8 @@ sub webraku-css(--> Str) { $CSS }
 # ---------- HTTP ----------
 
 my %REASON = 200 => 'OK', 204 => 'No Content', 302 => 'Found', 400 => 'Bad Request',
-             404 => 'Not Found', 405 => 'Method Not Allowed', 500 => 'Internal Server Error';
+             403 => 'Forbidden', 404 => 'Not Found', 405 => 'Method Not Allowed',
+             413 => 'Payload Too Large', 500 => 'Internal Server Error';
 
 my %MIME = html => 'text/html; charset=utf-8', js => 'text/javascript; charset=utf-8',
            css => 'text/css; charset=utf-8', json => 'application/json; charset=utf-8',
@@ -202,12 +253,19 @@ sub parse-query(Str $qs --> Hash) {
 
 #| Answer one request. A pure function of the request and the route table: it
 #| touches no socket, so what the server answers can be tested with no port.
+#| Answers (status, content type, body), and a fourth value, a Cache-Control,
+#| for the one answer that may be cached.
 sub handle(Str $method, Str $target, %headers, Str $body --> List) is export {
     my ($path, $qs) = $target.split('?', 2);
+    if $BASE && ($path eq $BASE || $path.starts-with("$BASE/")) {
+        $path = $path.substr($BASE.chars) || '/';
+    }
     my %query = parse-query($qs // '');
     my $req = Request.new(:$method, :$path, :%query, :%headers, :$body);
 
     return (200, 'text/plain; charset=utf-8', $VERSION) if $path eq '/_webraku/version';
+    return (200, %MIME<js>, $CLIENT-JS, 'public, max-age=31536000, immutable')
+        if $path eq '/_webraku/client.js' && !$DEV;
     return (200, %MIME<js>, $CLIENT-JS)                 if $path eq '/_webraku/client.js';
 
     # an `is server` call from the browser
@@ -220,6 +278,7 @@ sub handle(Str $method, Str $target, %headers, Str $body --> List) is export {
         return (404, %MIME<json>, to-json(%( error => "no server sub '$name'" ))) unless $fn;
         my @args = try from-json($body || '[]').list;
         return (400, %MIME<json>, to-json(%( error => 'the arguments must be a JSON array' ))) without @args;
+        my $*WEBRAKU-REQUEST = $req;
         my $result = try $fn(|@args);
         return (500, %MIME<json>, to-json(%( error => ~$! ))) if $!;
         return (200, %MIME<json>, to-json(%( :$result )));
@@ -245,6 +304,7 @@ sub handle(Str $method, Str $target, %headers, Str $body --> List) is export {
     if $route.kind eq 'api' {
         my @args = $route.param-names.map({ %params{$_} });
         $REQUEST = $req;
+        my $*WEBRAKU-REQUEST = $req;
         my $out = try $route.body.(|@args);
         return (500, %MIME<json>, to-json(%( error => ~$! ))) if $!;
         return (200, %MIME<json>, to-json($out));
@@ -281,32 +341,40 @@ sub serve-one($conn, Bool :$log = True) is export {
         my ($k, $v) = $l.split(':', 2);
         %headers{$k.lc.trim} = ($v // '').trim if $v.defined;
     }
-    # A body longer than the first packet needs the rest of it.
+    # A body longer than the first packet needs the rest of it — up to a limit,
+    # since the length is the client's word.
     $body //= '';
-    my $len = (%headers<content-length> // 0).Int;
+    my $len = (try (%headers<content-length> // '0').Int) // 0;
+    if $len > $MAX-BODY {
+        $conn.write: "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".encode;
+        $conn.close;
+        note sprintf('  413 %-4s %s', $method, $target) if $log;
+        return;
+    }
     while $body.encode('utf8-c8').bytes < $len {
         my $chunk = $conn.recv(:bin) // last;
         last unless $chunk.bytes;
         $body ~= $chunk.decode('utf8-c8');
     }
 
-    my ($status, $type, $text) = handle($method, $target, %headers, $body);
+    my ($status, $type, $text, $cache) = handle($method, $target, %headers, $body);
     my $bytes = $text.encode('utf8-c8');
     note sprintf('  %d %-4s %s', $status, $method, $target) if $log;
     $conn.write: (
         "HTTP/1.1 $status {%REASON{$status} // 'OK'}\r\n" ~
         "Content-Type: $type\r\n" ~
         "Content-Length: {$bytes.bytes}\r\n" ~
-        "Cache-Control: no-store\r\n" ~
+        "Cache-Control: {$cache // 'no-store'}\r\n" ~
         "Connection: close\r\n\r\n"
     ).encode('utf8-c8') ~ ($method eq 'HEAD' ?? ''.encode !! $bytes);
     $conn.close;
 }
 
 #| Start the server. `$client-js` is the transpiled bundle, served at
-#| /_webraku/client.js and referenced by every page.
-sub serve(Int :$port is copy = 8080, Str :$host = '127.0.0.1', Str :$client-js is copy = '',
-          Bool :$dev is copy = False, Bool :$log = True) is export {
+#| /_webraku/client.js and referenced by every page. `$base` mounts the
+#| application under a path (see `url`).
+sub serve(Int :$port is copy = 8080, Str :$host is copy = '127.0.0.1', Str :$client-js is copy = '',
+          Bool :$dev is copy = False, Bool :$log = True, Str :$base is copy = '') is export {
     # `webraku run` builds the bundle and names it here, so that the program
     # itself carries no build concern: an application's last line is `serve;`
     # whether it was started by the tool or by hand.
@@ -314,11 +382,14 @@ sub serve(Int :$port is copy = 8080, Str :$host = '127.0.0.1', Str :$client-js i
         $client-js = $f.IO.slurp if !$client-js && $f.IO.e;
     }
     $port = +$_ with %*ENV<WEBRAKU_PORT>;
+    $host = $_  with %*ENV<WEBRAKU_HOST>;
+    $base = $_  with %*ENV<WEBRAKU_BASE>;
     $dev  = True if %*ENV<WEBRAKU_DEV>;
     $CLIENT-JS = $client-js;
     $DEV = $dev;
+    webraku-base($base);
     my $listener = IO::Socket::INET.new(:localhost($host), :localport($port), :listen);
-    note "webraku: http://$host:$port/" ~ ($dev ?? '  (dev: the page reloads when the program changes)' !! '');
+    note "webraku: http://$host:$port$BASE/" ~ ($dev ?? '  (dev: the page reloads when the program changes)' !! '');
     note "webraku: {@ROUTES.elems} routes, {%RPC.elems} server subs, client bundle {$client-js.chars} chars";
     loop {
         my $conn = $listener.accept;

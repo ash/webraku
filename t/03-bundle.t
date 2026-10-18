@@ -44,6 +44,29 @@ my $near = "use Secret;\nsub read-db-cached() \{ 1 \}\nread-db-cached();\n";
 is-it ?strip-uses($near, beside => $dir, client => $near).contains('use Secret;'), 'False',
     'read-db-cached is not a call to read-db';
 
+# a name in prose — a comment, or the text of a string — is not a call
+my $prose = q:to/APP/;
+    use Secret;
+    # read-db is server-side
+    p raw('<code>read-db</code> stays on the server');
+    p "and so does read-db, says {shape-of(1)}";
+    APP
+is-it ?strip-uses($prose, beside => $dir, client => $prose).contains('use Secret;'), 'False',
+    'a name mentioned in a comment or a string does not keep its module';
+my $interp = "use Secret;\np \"value: \{read-db('k')\}\";\n";
+is-it ?strip-uses($interp, beside => $dir, client => $interp).contains('use Secret;'), 'True',
+    Q[a call inside a string's {…} block does];
+my $amp = "use Secret;\np \"value: \&read-db('k')\";\n";
+is-it ?strip-uses($amp, beside => $dir, client => $amp).contains('use Secret;'), 'True',
+    'and so does an interpolated &call';
+is-it code-only("say 'a # b'; # gone\nmy \$x = 1;"), "say ''; \nmy \$x = 1;", 'code-only blanks string text and comments';
+is-it code-only("sub isn't-it() \{ 'x' \}"), "sub isn't-it() \{ '' \}", 'an apostrophe inside a name is not a quote';
+
+# an array parameter goes to the server as one argument, not spread out
+my $arr = "sub names(\@cps, \%opt, \$n) is server \{ \@cps.elems \}\n";
+is-it ?stub-server-subs($arr).contains("webraku-call('names', [\$(\@cps), \$(\%opt), \$n])"), 'True',
+    'an @ or % parameter is passed itemized';
+
 say "1..$n";
 say $bad ?? "# $bad of $n checks FAILED" !! "# all $n checks passed";
 exit $bad ?? 1 !! 0;

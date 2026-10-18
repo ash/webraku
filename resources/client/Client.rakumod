@@ -197,8 +197,11 @@ sub render-list(Element $parent, &body) is export {
     # The FIRST draw of a parent the server already filled adopts what is there;
     # clearing it would throw away exactly what hydration is for, and every child
     # would then report a mismatch against a parent that had just been emptied.
-    # Every later draw clears and rebuilds.
-    $parent.node<innerHTML> = '' if $parent.drawn || !$HYDRATING;
+    # Every later draw clears and rebuilds — and so does a first draw into a
+    # parent whose children this code already built some other way, with a
+    # block: that one was hydrated when it was built, and this is a redraw.
+    my $built = $parent.kids.elems || $parent.text.defined;
+    $parent.node<innerHTML> = '' if $parent.drawn || !$HYDRATING || $built;
     $parent.drawn = True;
     $parent.kids = [];
     $parent.text = Str;
@@ -207,6 +210,12 @@ sub render-list(Element $parent, &body) is export {
     reconcile();
     $parent;
 }
+
+# ---------- the browser itself ----------
+
+#| The browser's global object, for what the builders do not cover. The
+#| server half answers a stand-in that does nothing.
+sub window() is export { JS.globalThis }
 
 # ---------- sources the framework hands out ----------
 
@@ -281,6 +290,9 @@ sub stylesheet(Str $css) is export { }
 sub webraku-hydrate() is export {
     webraku-load-replay();
     my $path = JS.location<pathname>.Str || '/';
+    my $base = webraku-page-base();
+    $path = $path.substr($base.chars) || '/'
+        if $base && ($path eq $base || $path.starts-with("$base/"));
     my ($route, %params) = match-route(@ROUTES, $path, kind => 'page');
     without $route {
         JS.console.warn("webraku: no page matches $path; nothing was hydrated");

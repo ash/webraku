@@ -117,6 +117,60 @@ sub slow-double(Int $x) is server { sleep .4; $x * 2 }
     is-it $status.Str, '200', 'a query string does not disturb the route match';
 }
 
+# ---------- the request body limit, and the bundle's caching ----------
+{
+    my ($status, $type, $body, $cache) = handle('GET', '/_webraku/client.js', {}, '');
+    is-it $status.Str, '200', 'the bundle is served';
+    has-it ($cache // ''), 'immutable', 'and may be cached for good, since its URL changes on restart';
+    my ($s2, $t2, $page) = handle('GET', '/', {}, '');
+    has-it $page, '/_webraku/client.js?v=', 'the page asks for the bundle by its versioned URL';
+}
+
+# ---------- a mount point ----------
+{
+    webraku-base('/demo/');
+    is-it url('/post/7'), '/demo/post/7', 'url() puts the base in front of a path';
+    is-it url('x'),       '/demo/x',      'and of a relative one';
+    my ($status, $type, $body) = handle('GET', '/demo/post/42', {}, '');
+    is-it $status.Str, '200',              'a path under the base reaches its route';
+    has-it $body, '<h1>post 42</h1>',      'with the base taken off';
+    has-it $body, 'src="/demo/_webraku/client.js?v=', 'the bundle is asked for under the base';
+    has-it $body, '<meta name="webraku-base" content="/demo">', 'and the page tells the browser where it is mounted';
+    ($status, $type, $body) = handle('GET', '/demo', {}, '');
+    has-it $body, '<h1>home</h1>',         'the base alone is the root';
+    ($status, $type, $body) = handle('GET', '/post/42', {}, '');
+    is-it $status.Str, '200',              'a proxy that strips the base is answered the same';
+    ($status, $type, $body) = handle('POST', '/demo/_rpc/double', {}, '[5]');
+    is-it from-json($body)<result>.Str, '10', 'a server sub is reachable under the base';
+    webraku-base('');
+    is-it url('/post/7'), '/post/7',       'with no base, url() changes nothing';
+}
+
+# ---------- the request, inside an `is server` sub ----------
+{
+    sub who-asks() is server { request().header('x-forwarded-for') // 'nobody' }
+    my ($status, $type, $body) = handle('POST', '/_rpc/who-asks', { 'x-forwarded-for' => '203.0.113.7' }, '[]');
+    is-it from-json($body)<result>, '203.0.113.7', 'request() is the request an `is server` sub is answering';
+}
+
+# ---------- two pages building at once ----------
+{
+    # The builders' stack of open parents was one array for the whole server,
+    # and the server answers each request on a thread of its own: two renders at
+    # once built into each other, and one page came out empty.
+    # A opens its div and pauses; B opens its div and pauses longer; A wakes
+    # and builds again while B's div is open.
+    page '/nest-a', :title('A'), { div :class<a>, { p 'a1'; sleep .3; p 'a2' } }
+    page '/nest-b', :title('B'), { div :class<b>, { sleep .4; p 'b1' } }
+    my $pa = start { handle('GET', '/nest-a', {}, '') };
+    sleep .1;
+    my $pb = start { handle('GET', '/nest-b', {}, '') };
+    my $a = (await $pa)[2];
+    my $b = (await $pb)[2];
+    has-it $a, '<div class="a"><p>a1</p><p>a2</p></div>', 'a page keeps its own tree while another builds';
+    has-it $b, '<div class="b"><p>b1</p></div>', 'and the other page keeps its own';
+}
+
 say "1..$n";
 say $bad ?? "# $bad of $n checks FAILED" !! "# all $n checks passed";
 exit $bad ?? 1 !! 0;
