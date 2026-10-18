@@ -11,3 +11,8 @@ examples/**/*.client.raku
 # fez writes its upload tarballs here
 sdist/
 *.tar.gz
+
+# the demo site's bundles, written by run.raku
+demo/*.client.js
+demo/*.client.js.map
+demo/*.client.raku

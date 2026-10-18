@@ -1,0 +1,10 @@
+# The demos webraku.raku.online serves: one process each, behind one proxy.
+#
+# name     port  mount      program (relative to the repository)
+hub        8800  /          demo/hub.raku
+sudoku     8801  /sudoku    examples/sudoku/sudoku.raku
+unicode    8802  /unicode   examples/unicode/unicode.raku
+pixels     8803  /pixels    examples/pixels/pixels.raku
+wavelet    8804  /wavelet   examples/wavelet/wavelet.raku
+primes     8805  /sieve     examples/primes.raku
+counter    8806  /counter   examples/counter.raku

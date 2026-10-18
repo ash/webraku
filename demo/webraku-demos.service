@@ -1,0 +1,36 @@
+# systemd unit for the Webraku demos. Install as
+# /etc/systemd/system/webraku-demos.service, then
+#     systemctl daemon-reload && systemctl enable --now webraku-demos
+#
+# It runs demo/run.raku as the `webraku` user, which builds every demo's
+# browser half and keeps each demo running on its port. Caddy, in front,
+# serves them all on one domain (see Caddyfile).
+
+[Unit]
+Description=Webraku demos
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=webraku
+Group=webraku
+WorkingDirectory=/opt/webraku
+# rakupp as install.sh puts it, per user, in ~/.rakupp
+ExecStart=/home/webraku/.rakupp/bin/rakupp /opt/webraku/demo/run.raku
+Environment=PATH=/home/webraku/.rakupp/bin:/usr/local/bin:/usr/bin:/bin
+# the pixel board's picture, kept across restarts
+Environment=WEBRAKU_PIXELS_FILE=/var/lib/webraku/pixels.txt
+StateDirectory=webraku
+Restart=always
+RestartSec=5
+
+# The demos read their own files, write their bundles beside them, and keep
+# one picture in /var/lib/webraku. Nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/webraku/examples /opt/webraku/demo /var/lib/webraku
+
+[Install]
+WantedBy=multi-user.target

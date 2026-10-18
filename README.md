@@ -123,13 +123,31 @@ and awaits the answer. Arguments and results must be plain data: numbers,
 strings, booleans, arrays, hashes. An element changed after the answer
 arrives is reconciled into the page, the same as one changed by a handler.
 
+**The request, the browser, the mount point.** Three subs reach outside the
+page, and each has a meaning in both halves:
+
+| | on the server | in the browser |
+|---|---|---|
+| `request()` | the request being answered, in a page, an `api` block or an `is server` sub: `request().header('x-forwarded-for')` | — |
+| `window()` | a stand-in that takes any call and does nothing, since handlers never run there | the browser's global object: `window().history.replaceState(…)`, `window().navigator.clipboard.writeText($s)` |
+| `url($path)` | `$path` under the application's mount point | the same, with the mount point read from the page |
+
+An application can be mounted under a path, such as `/sudoku`, with
+`serve :base</sudoku>` or `WEBRAKU_BASE=/sudoku`. Its routes stay written
+from `/`; it answers under the base, asks for its script and its server subs
+there, and `url('/u/41')` is `/sudoku/u/41`. A request that arrives with the
+base already taken off is answered the same, so the proxy in front may strip
+it or not.
+
 **Modules.** `rakupp --target=js` compiles a `use`d module into the browser's
 script, and so does an installed one. A module that lives beside the
 application, such as `use Analysis` for an `Analysis.rakumod` in the same
 directory, gets one more rule. It goes into the browser's script only when the
 browser's code calls something it exports, which is what remains once the
 `is server` bodies are stubbed. A module that only `is server` code calls
-stays on the server, along with everything it uses.
+stays on the server, along with everything it uses. A name that only appears
+in a comment or in the text of a string, such as `<code>solve</code>` in a
+paragraph of the page, is not a call.
 
 ## The command
 
@@ -141,7 +159,15 @@ stays on the server, along with everything it uses.
 
 `--dev` reloads the page when the program changes. `--keep-raku` keeps the
 assembled `app.client.raku`, to read or to transpile by hand. `RAKUPP` names
-the Raku++ binary when it is not the `rakupp` on `PATH`.
+the Raku++ binary when it is not the `rakupp` on `PATH`. `WEBRAKU_PORT`,
+`WEBRAKU_HOST` and `WEBRAKU_BASE` override `serve`'s port, address and mount
+point.
+
+The server answers each request on a thread of its own. A page's tree and its
+replay log belong to the render that builds them, so pages rendering at once
+do not build into each other. A request body over a megabyte is answered 413
+unread. Pages are sent with `Cache-Control: no-store`; the script's address
+carries the server's start time and may be cached for good.
 
 `webraku build` concatenates the framework's browser half with the
 application, replaces every `is server` body with the RPC stub, and runs
@@ -167,7 +193,8 @@ only Raku++ can compile, and only `webraku build` ever reads them.
 ## Examples
 
 Each of the first three is one file and shows one half of the idea. The
-fourth puts them together in a page with a module of its own.
+others put them together, each with modules of its own, and each draws the
+line between the halves in a different place for a different reason.
 
 - `examples/counter.raku` — client-side only. After the page loads there is
   no network traffic at all: clicks and a one-second timer are handled by the
@@ -186,6 +213,20 @@ fourth puts them together in a page with a module of its own.
   the page are compiled into the browser's script, so a slider redraws the
   plots with no request. The scalogram is an `is server` call that answers
   with an image. It has a README of its own.
+- `examples/sudoku/` — a secret on the server. The rules are in the browser,
+  so a repeated digit turns red on the keystroke; the solver is only used by
+  `is server` subs, so it is not in the browser's script, and the solution is
+  never sent. Hints and checks are questions the server answers.
+- `examples/unicode/` — data on the server. Every name in Unicode, 4.6 MB of
+  them, is searched on the server with Raku++'s `uniname` and `uniprop`;
+  UTF-8 bytes, UTF-16 units and the counting of a string are arithmetic,
+  done in the browser as you type.
+- `examples/pixels/` — state on the server, shared. One picture for every
+  visitor: painting is instant and local, and once a second one `is server`
+  call sends the strokes and brings back everyone else's.
+
+`demo/` serves all of them as one site, behind one proxy, with a front page
+that is a Webraku program too: see [demo/README.md](demo/README.md).
 
 ```bash
 webraku run examples/counter.raku --port=8791
@@ -208,16 +249,17 @@ Left out of 0.0.1, each a later piece of work if wanted:
 
 | engine | version | 01-html | 02-server | 03-bundle |
 |---|---|---:|---:|---:|
-| Raku++ | 5.3.0-72, a development build | 33/33 | 36/36 | 7/7 |
-| Rakudo | v2026.09 | 33/33 | 36/36 | 7/7 |
+| Raku++ | 5.4.1-122, a development build | 33/33 | 52/52 | 13/13 |
+| Rakudo | v2026.09 | 33/33 | 52/52 | 13/13 |
 
 Rakudo runs the suite as a cross-check on the pure parts; it cannot run an
 application.
 
 Neither version is an established floor, as no older engine has been tried.
 The wavelet example needs a Raku++ whose `--target=js` compiles `use`d
-modules, which landed after 5.3.0, so until the next release that means a
-build from source.
+modules, which landed after 5.3.0. The examples were last built and tried
+with the development build in the table, after v5.4.1; no release has been
+tried with them.
 
 ## Author
 

@@ -75,7 +75,7 @@ sub show(Int $limit) {
         nav {
             text 'try ';
             for 50, 100, 500, 1000 -> $n {
-                a "$n", :href("/primes/$n");
+                a "$n", :href(url("/primes/$n"));
             }
         }
 
