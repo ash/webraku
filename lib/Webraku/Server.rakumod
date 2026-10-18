@@ -121,7 +121,7 @@ sub rpc-table() is export { %RPC }
 # ---------- the mount point ----------
 #
 # An application can live under a path rather than at the root of its host:
-# `webraku.raku.online/sudoku/` is one program and `/wavelet/` another, each
+# `web.raku.online/sudoku/` is one program and `/wavelet/` another, each
 # behind the same proxy. The routes stay written from `/` — a program does not
 # know where it will be mounted — and the base is set from outside, by
 # `serve :base</sudoku>` or WEBRAKU_BASE. A request that arrives with the base

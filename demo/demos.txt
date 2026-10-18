@@ -1,4 +1,4 @@
-# The demos webraku.raku.online serves: one process each, behind one proxy.
+# The demos web.raku.online serves: one process each, behind one proxy.
 #
 # name     port  mount      program (relative to the repository)
 hub        8800  /          demo/hub.raku
