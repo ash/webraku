@@ -224,17 +224,26 @@ sub analyse(Str $signal, Real $noise, Int $seed, Str $wavelet, Int $want-level,
 #
 # The scalogram is |W(scale, t)| for the signal on the page, drawn as a small
 # bitmap: one row per scale, the highest frequency at the top, and a column
-# per pair of samples. A bitmap rather than SVG, because it is 36 × 256 cells:
-# as rectangles that is ten thousand elements per redraw, as a BMP it is 27 KB.
+# per pair of samples. A bitmap rather than SVG, because it is 24 × 256 cells:
+# as rectangles that is six thousand elements per redraw, as a BMP it is 18 KB.
 #
-# The rows are spaced by FREQUENCY, from the Nyquist limit down to a period of
-# 80 samples, and each wavelet's scales are found from its centre frequency.
-# A fixed range of scales would mean a different band for every wavelet.
+# It is a sketch, and cheap on purpose. The transform runs on the signal at
+# half its rate — each pair of samples averaged, 256 in all — and at 24 scales
+# rather than 36, which makes every FFT half as long and leaves two thirds as
+# many of them: a quarter of the work, and the picture arrives three to four
+# times sooner. What it gives up is the top octave, periods of 2 to 4 samples,
+# where only the very start of the Doppler signal lives.
+#
+# The rows are spaced by FREQUENCY, from the halved rate's Nyquist limit down to
+# a period of 80 samples, and each wavelet's scales are found from its centre
+# frequency. A fixed range of scales would mean a different band for every
+# wavelet.
 
-constant CWT-ROWS = 36;
-constant CWT-COLS = 256;
-constant F-HIGH   = 0.5e0;
-constant F-LOW    = 1e0 / 80;
+constant CWT-ROWS = 24;
+constant CWT-RATE = 2;                    # samples averaged into one
+constant CWT-COLS = N div CWT-RATE;       # 256, one column per averaged pair
+constant F-HIGH   = 0.5e0;                # cycles per pair: a period of 4 samples
+constant F-LOW    = CWT-RATE / 80e0;      # …down to one of 80
 my @CWT-FREQ = (^CWT-ROWS).map({ F-HIGH * (F-LOW / F-HIGH) ** ($_ / (CWT-ROWS - 1)) });
 
 #| A colour from 0 (dark) to 1 (bright), along viridis' five anchors.
@@ -246,7 +255,11 @@ sub viridis(Real $v --> List) {
     (^3).map({ (@VIRIDIS[$i][$_] * (1 - $f) + @VIRIDIS[$i + 1][$_] * $f).round }).List
 }
 
-#| A 24-bit BMP, top row first, as a list of byte values.
+# The same colours at 256 steps, as the three bytes a BMP stores (blue, green,
+# red): a pixel is then one lookup rather than an interpolation.
+my @SHADES = (^256).map({ viridis($_ / 255).reverse.List });
+
+#| A 24-bit BMP of shade indices 0..255, top row first, as a list of byte values.
 sub bmp(@rows --> List) {
     my $h = +@rows;
     my $w = +@rows[0];
@@ -259,9 +272,10 @@ sub bmp(@rows --> List) {
     le(40, 4); le($w, 4); le(2 ** 32 - $h, 4);   # a negative height: top-down
     le(1, 2); le(24, 2); le(0, 4); le($stride * $h, 4);
     le(2835, 4); le(2835, 4); le(0, 4); le(0, 4);
+    my @pad = 0 xx ($stride - $w * 3);
     for @rows -> @row {
-        for @row -> ($r, $g, $bl) { @b.append: $bl, $g, $r }
-        @b.append: 0 xx ($stride - $w * 3);
+        @b.append: @SHADES[@row].map(|*);
+        @b.append: @pad;
     }
     @b.List
 }
@@ -269,12 +283,21 @@ sub bmp(@rows --> List) {
 my @B64 = |('A'..'Z'), |('a'..'z'), |('0'..'9'), '+', '/';
 sub base64(@bytes --> Str) {
     my @out;
-    for @bytes.rotor(3, :partial) -> @t {
-        my $n = (@t[0] +< 16) + ((@t[1] // 0) +< 8) + (@t[2] // 0);
-        my @c = (18, 12, 6, 0).map({ @B64[($n +> $_) +& 63] });
-        @c[3] = '=' if @t < 3;
-        @c[2] = '=' if @t < 2;
-        @out.push: @c.join;
+    my int $n = +@bytes;
+    my int $i = 0;
+    my int $v;
+    while $i + 2 < $n {
+        $v = (@bytes[$i] +< 16) +| (@bytes[$i + 1] +< 8) +| @bytes[$i + 2];
+        @out.push: @B64[$v +> 18] ~ @B64[($v +> 12) +& 63] ~ @B64[($v +> 6) +& 63] ~ @B64[$v +& 63];
+        $i = $i + 3;
+    }
+    if $n - $i == 2 {
+        $v = (@bytes[$i] +< 16) +| (@bytes[$i + 1] +< 8);
+        @out.push: @B64[$v +> 18] ~ @B64[($v +> 12) +& 63] ~ @B64[($v +> 6) +& 63] ~ '=';
+    }
+    elsif $n - $i == 1 {
+        $v = @bytes[$i] +< 16;
+        @out.push: @B64[$v +> 18] ~ @B64[($v +> 12) +& 63] ~ '==';
     }
     @out.join
 }
@@ -286,18 +309,18 @@ sub scalogram(Str $signal, Real $noise, Int $seed, Str $wavelet, Str $which --> 
     my @x = $which eq 'clean'
         ?? @clean
         !! do { my @g = gaussian-noise($seed); (^N).map({ @clean[$_] + $noise * @g[$_] }) };
+    my @half = @x.rotor(CWT-RATE).map({ .sum / CWT-RATE });
     my $w = wavelet($wavelet);
     my $cf = central-frequency($w, :precision(10));
     my @scales = @CWT-FREQ.map({ $cf / $_ });
-    my ($coef, $freq) = cwt(@x, @scales, $w, :method<fft>);
+    # :sampling-period says what one value of @half stands for, so the
+    # frequencies come back in cycles per sample of the original signal
+    my ($coef, $freq) = cwt(@half, @scales, $w, :method<fft>, :sampling-period(CWT-RATE));
 
-    # |W|, averaged over each pair of samples, and scaled to the largest.
-    my $per = N div CWT-COLS;
-    my @mag = $coef.map(-> @row {
-        (^CWT-COLS).map(-> $c { (^$per).map({ @row[$c * $per + $_].abs }).sum / $per }).List
-    });
+    # |W|, scaled to the largest, as a shade
+    my @mag = $coef.map(*.map(*.abs).List);
     my $top = @mag.map(*.max).max || 1;
-    my @pixels = @mag.map(-> @row { @row.map({ viridis(($_ / $top) ** .8) }).List });
+    my @pixels = @mag.map(*.map({ (($_ / $top) ** .8 * 255).round }).List);
 
     my ($psi, $grid) = $w.wavefun(:level(9));
     my @re = $psi.map({ $_ ~~ Complex ?? .re !! $_ });

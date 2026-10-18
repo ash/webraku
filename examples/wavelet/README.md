@@ -46,11 +46,11 @@ What it draws:
 - σ as estimated, the threshold, how many coefficients were kept, and the
   RMS error against the clean signal before and after;
 - the scalogram, |W| of the continuous transform of the noisy or the clean
-  signal, under one of twelve continuous wavelets. Its 36 rows run from a
-  period of 2 samples at the top to 80 at the bottom. Each wavelet's scales
-  are found from its centre frequency, so every wavelet covers the same
-  band. Beside it is ψ, with the imaginary part dashed for a complex
-  wavelet.
+  signal, under one of twelve continuous wavelets. It is a sketch: the
+  signal is averaged in pairs first, and its 24 rows run from a period of 4
+  samples at the top to 80 at the bottom. Each wavelet's scales are found
+  from its centre frequency, so every wavelet covers the same band. Beside
+  it is ψ, with the imaginary part dashed for a complex wavelet.
 
 ## How it is split
 
@@ -77,20 +77,28 @@ and `H` were one variable), a sub declared in a class body, `Lock`, `.Map`,
 `cis`, and `.max(:by)` on a Range. Each is checked in Raku++'s JS gate.
 
 The scalogram is a server sub, `scales`. It answers with the image as a
-`data:` URI: a 256 × 36 BMP of 27 KB, written byte by byte in
-`Analysis.rakumod`, where as SVG it would be ten thousand rectangles. One
-answer takes 1–2.7 s on Raku++, depending on the wavelet (`fbsp` is the
-slowest). The same code compiled for the browser takes 0.6 s for
-`cmor1.5-1.0` under node. Making `scales` a plain sub would move it too; it
-stays on the server for now. So it is asked for only when the signal, the seed or the
-continuous wavelet changes, the noise slider asks only when it is let go,
-and "computing…" shows meanwhile. The DWT sliders never touch it.
+`data:` URI: a 256 × 24 BMP of 18 KB, written byte by byte in
+`Analysis.rakumod`, where as SVG it would be six thousand rectangles.
+
+It is drawn at a lower resolution than the transform allows, to be quick:
+the 512 samples are averaged in pairs, so every FFT is half as long, and
+there are 24 scales instead of 36. That costs the top octave, periods of 2
+to 4 samples, where only the start of the Doppler signal lives. Measured on
+Raku++ in interleaved runs, one answer for `cmor1.5-1.0` went from 1.5–2.0 s
+at full resolution to 0.54–0.74 s, and for `fbsp2-1-1.5`, the slowest, from
+3.2–3.7 s to 1.15–1.3 s.
+
+Making `scales` a plain sub would move it into the browser too; it stays on
+the server, so the page never stalls while one is computed. It is asked for
+only when the signal, the seed or the continuous wavelet changes, the noise
+slider asks only when it is let go, and "computing…" shows meanwhile. The
+DWT sliders never touch it.
 
 The first render needs no request. The page arrives already drawn, the
 server's call to `scales` is in the page's replay log, and the browser
 computes the same `transform` the server did. With JavaScript switched off
 it shows a complete picture. The scalogram makes that first render take
-about a second longer.
+about half a second longer.
 
 The scalogram can have two requests in flight, if the noise slider is let go
 twice in quick succession, and their answers can come back out of order.

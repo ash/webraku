@@ -176,20 +176,22 @@ sub dwt-source(Str $signal, Real $noise, Int $seed, Str $wavelet, Int $level, Re
     RAKU
 }
 
-#| …and the continuous one: the scalogram's 36 rows run from a period of 2
-#| samples to 80, and each frequency becomes a scale through the wavelet's
-#| centre frequency.
+#| …and the continuous one: the scalogram is drawn from the signal at half its
+#| rate, and its 24 rows run from a period of 4 samples to 80, each frequency
+#| made a scale through the wavelet's centre frequency.
 sub cwt-source(Str $wavelet, Str $which --> Str) {
     qq:to/RAKU/.chomp;
     use Math::Wavelet;
 
-    # @x: the $which signal, 512 samples
-    # 36 frequencies, from a period of 2 samples down to one of 80
-    my @f = (^36).map(\{ 0.5 * (1/80 / 0.5) ** (\$_ / 35) });
+    # @x: the $which signal, 512 samples, averaged in pairs: a sketch at half the rate
+    my @h = \@x.rotor(2).map(*.sum / 2);
+
+    # 24 frequencies in cycles per pair, from a period of 4 samples down to one of 80
+    my @f = (^24).map(\{ 0.5 * (2/80 / 0.5) ** (\$_ / 23) });
 
     # each as a scale, through the wavelet's centre frequency at scale 1
     my \$cf = central-frequency('$wavelet', :precision(10));
-    my (\$W, \$freq) = cwt(@x, \@f.map(\{ \$cf / \$_ }), '$wavelet', :method<fft>);
+    my (\$W, \$freq) = cwt(@h, \@f.map(\{ \$cf / \$_ }), '$wavelet', :method<fft>, :sampling-period(2));
 
     # |W|, one row per scale: the picture above
     my @image = \$W.map(*.map(*.abs));
@@ -429,8 +431,8 @@ page '/', :title('Wavelet shrinkage'), {
         whenever $s-cwave.changes   -> $ev { $cname  = $ev<target><value>.Str; rescale() }
         whenever $s-which.changes   -> $ev { $which  = $ev<target><value>.Str; rescale() }
         # The scalogram follows the noise when the slider is let go, not at
-        # every step of the drag: it costs a second, and the drag would queue
-        # one per step.
+        # every step of the drag: it costs half a second, and the drag would
+        # queue one per step.
         whenever $s-noise.changes   { rescale() }
         whenever $s-wavelet.changes -> $ev { $wname  = $ev<target><value>.Str; redraw() }
         whenever $s-mode.changes    -> $ev { $mode   = $ev<target><value>.Str; redraw() }
