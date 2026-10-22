@@ -145,18 +145,27 @@ class Element is export {
 
 my @STACK;
 
-# The stack a builder appends to. On the server each render declares its own,
-# `$*WEBRAKU-STACK`: the server answers requests on parallel threads, and two
-# pages rendering at once on one shared stack built into each other — one came
-# out empty and the other with both bodies. The browser renders one page, and
-# keeps the module's. (Under `--target=js` a dynamic variable nobody declared
-# is an error rather than a soft failure, so it is not even looked up there.)
+# The stack a builder appends to. On the server, pages and routes are built on
+# parallel threads, and two builds on one shared stack built into each other —
+# one page came out empty and the other with both bodies, or an element landed
+# in another page's tree. So each build there has a stack of its own,
+# `$*WEBRAKU-STACK`: a page's render declares it, and `with-parent` opens one
+# for a build outside any render, such as a `route` that writes a whole
+# document. A dynamic lookup costs ~45 ns a call, against ~900 for a table
+# keyed by thread. The browser renders one page, and keeps the module's.
+# (Under `--target=js` a dynamic variable nobody declared is an error rather
+# than a soft failure, so it is not even looked up there.)
 sub webraku-stack() { $IN-BROWSER ?? @STACK !! ($*WEBRAKU-STACK // @STACK) }
 
 #| Open `$el` as the parent for the duration of `&body`. Every framework entry
 #| point that builds a subtree goes through here, so a body that dies cannot
 #| leave the stack unbalanced.
 sub with-parent(Element $el, &body) is export {
+    # A build outside any render, on a server thread: give it a stack of its own.
+    if !$IN-BROWSER && ($*WEBRAKU-STACK // Nil) !~~ Array {
+        my $*WEBRAKU-STACK = [];
+        return with-parent($el, &body);
+    }
     webraku-stack().push: $el;
     SCOPE-IN($el);
     # In the browser a page that calls an `is server` sub is ASYNC: `body()`

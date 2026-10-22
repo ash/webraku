@@ -149,6 +149,31 @@ stays on the server, along with everything it uses. A name that only appears
 in a comment or in the text of a string, such as `<code>solve</code>` in a
 paragraph of the page, is not a call.
 
+## Handlers that own their response
+
+A `page` is a document Webraku wraps and hydrates. A `route` is a handler
+whose return value IS the response — for the pages that are not that shape:
+a redirect, a feed, a 404 with a body, a whole document written with the
+builders, a file.
+
+```raku
+route '/old', { redirect '/new', :status(301) }
+route '/feed', { response $xml, :type<application/rss+xml> }
+route '/doc', { html { head { title 'Doc' }; body :class<home>, { h1 'hi' } } }
+route '/category/*path', -> $path { … }        # a splat: the rest of the path
+route '/login', :methods<POST>, { my %f = request.form; … }
+fallback -> $path { response "nothing at $path", :status(404) }
+```
+
+`response($body, :status, :type, :headers)` and `redirect($to, :status)`
+build a `Response`; a page or an `api` block may return one too. `request()`
+is the request being served, on any thread, with `.form`, `.cookies`,
+`.host` and `.raw` (the body's bytes, for uploads). Path segments arrive
+percent-decoded, so `/tag/%D0%BA%D0%BE%D1%82` matches `/tag/:slug` with
+`кот`. `static` serves files as bytes and directories by their `index.html`.
+`serve :workers(N)` answers N requests at a time from a queue, rather than
+one thread per connection.
+
 ## The command
 
 | | |
@@ -160,13 +185,14 @@ paragraph of the page, is not a call.
 `--dev` reloads the page when the program changes. `--keep-raku` keeps the
 assembled `app.client.raku`, to read or to transpile by hand. `RAKUPP` names
 the Raku++ binary when it is not the `rakupp` on `PATH`. `WEBRAKU_PORT`,
-`WEBRAKU_HOST` and `WEBRAKU_BASE` override `serve`'s port, address and mount
-point.
+`WEBRAKU_HOST`, `WEBRAKU_BASE` and `WEBRAKU_MAX_BODY` override `serve`'s port,
+address, mount point and body limit.
 
-The server answers each request on a thread of its own. A page's tree and its
-replay log belong to the render that builds them, so pages rendering at once
-do not build into each other. A request body over a megabyte is answered 413
-unread. Pages are sent with `Cache-Control: no-store`; the script's address
+The server answers each request on a thread of its own, or from a pool of
+`serve :workers(N)`. A page's tree and its replay log belong to the render
+that builds them, and a route's tree to its handler, so pages built at once
+do not build into each other. A request body over `serve :max-body` bytes, a
+megabyte unless it is set, is answered 413 unread. Pages are sent with `Cache-Control: no-store`; the script's address
 carries the server's start time and may be cached for good.
 
 `webraku build` concatenates the framework's browser half with the
@@ -241,7 +267,7 @@ Left out of 0.0.1, each a later piece of work if wanted:
 | a markup slang | the builders are the HTML; there is no JSX-like syntax over them |
 | streaming render, partial hydration, islands | a page renders whole and hydrates whole |
 | WebSocket-backed Supplies | the browser reaches the server only through `is server` calls |
-| nested layouts, middleware | one `page` block per route |
+| nested layouts, middleware | one `page` block per route; a `route` can share a builder sub |
 | sessions, authentication, forms validation | |
 | HTTP/2, TLS | put it behind a proxy that terminates TLS |
 

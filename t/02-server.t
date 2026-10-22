@@ -116,12 +116,27 @@ sub slow-double(Int $x) is server { sleep .4; $x * 2 }
     my ($status, $type, $body) = handle('GET', '/q?a=1&b=hello%20there', {}, '');
     is-it $status.Str, '200', 'a query string does not disturb the route match';
 }
-
-# ---------- the request body limit, and the bundle's caching ----------
 {
-    my ($status, $type, $body, $cache) = handle('GET', '/_webraku/client.js', {}, '');
+    my $seen;
+    route '/search', { $seen = request().query<s>; 'x' };
+    handle('GET', '/search?s=%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0+raku', {}, '');
+    is-it $seen, 'книга raku', 'a query value is UTF-8, and + is a space';
+}
+{
+    my $r = Request.new(:method<POST>, :path</>,
+        headers => { 'content-type' => 'application/x-www-form-urlencoded' },
+        body => 'c=%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82+%D0%BC%D0%B8%D1%80&n=1%2B1%3D2');
+    my %f = $r.form;
+    is-it %f<c>, 'Привет мир', 'a form field is UTF-8';
+    is-it %f<n>, '1+1=2',      'and an encoded + stays a plus';
+}
+
+# ---------- the bundle's caching ----------
+{
+    my ($status, $type, $body, $headers) = handle('GET', '/_webraku/client.js', {}, '');
     is-it $status.Str, '200', 'the bundle is served';
-    has-it ($cache // ''), 'immutable', 'and may be cached for good, since its URL changes on restart';
+    has-it (($headers // ()).list.first(*.key eq 'Cache-Control') // ('' => '')).value, 'immutable',
+           'and may be cached for good, since its URL changes on restart';
     my ($s2, $t2, $page) = handle('GET', '/', {}, '');
     has-it $page, '/_webraku/client.js?v=', 'the page asks for the bundle by its versioned URL';
 }
