@@ -294,10 +294,10 @@ sub answer($out, Int :$status = 200 --> List) {
     }
 }
 
-sub url-decode(Str $s is copy --> Str) {
-    $s = $s.subst('+', ' ', :g);
-    $s ~~ s:g/ '%' (<[0..9A..Fa..f]> ** 2) /{ chr(:16(~$0)) }/;
-    $s;
+#| A query or form value: `+` is a space, and each run of %XX octets is UTF-8,
+#| as browsers send it, read the way a path segment is.
+sub url-decode(Str $s --> Str) {
+    url-decode-segment($s.subst('+', ' ', :g));
 }
 
 sub parse-query(Str $qs --> Hash) {

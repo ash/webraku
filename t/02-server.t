@@ -116,6 +116,20 @@ sub slow-double(Int $x) is server { sleep .4; $x * 2 }
     my ($status, $type, $body) = handle('GET', '/q?a=1&b=hello%20there', {}, '');
     is-it $status.Str, '200', 'a query string does not disturb the route match';
 }
+{
+    my $seen;
+    route '/search', { $seen = request().query<s>; 'x' };
+    handle('GET', '/search?s=%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0+raku', {}, '');
+    is-it $seen, 'книга raku', 'a query value is UTF-8, and + is a space';
+}
+{
+    my $r = Request.new(:method<POST>, :path</>,
+        headers => { 'content-type' => 'application/x-www-form-urlencoded' },
+        body => 'c=%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82+%D0%BC%D0%B8%D1%80&n=1%2B1%3D2');
+    my %f = $r.form;
+    is-it %f<c>, 'Привет мир', 'a form field is UTF-8';
+    is-it %f<n>, '1+1=2',      'and an encoded + stays a plus';
+}
 
 say "1..$n";
 say $bad ?? "# $bad of $n checks FAILED" !! "# all $n checks passed";
